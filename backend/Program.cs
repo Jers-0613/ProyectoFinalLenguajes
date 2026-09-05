@@ -14,7 +14,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
+
+app.MapGet("/api/test", () =>
+{
+    return "API funcionando correctamente";
+});
 
 var summaries = new[]
 {
