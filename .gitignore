@@ -1,0 +1,46 @@
+# =========================
+# Node / Nuxt
+# =========================
+node_modules/
+.nuxt/
+.output/
+dist/
+.nitro/
+.cache/
+*.log
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# .NET / Visual Studio
+# =========================
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# =========================
+# Operating System
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDEs
+# =========================
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
