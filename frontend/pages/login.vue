@@ -25,6 +25,21 @@
       <button type="submit">
         Iniciar sesión
       </button>
+
+      <button
+        type="button"
+        @click="probarEndpointProtegido"
+      >
+        Probar acceso protegido
+      </button>
+
+      <button
+        type="button"
+        @click="cerrarSesion"
+      >
+        Cerrar sesión
+      </button>
+
       <div v-if="errores.length > 0">
   <p></p>
 
@@ -55,6 +70,7 @@ const errores = ref<string[]>([])
 const mensajeExito = ref('')
 interface RespuestaLogin {
   mensaje: string
+  token: string
   usuario: {
     id: number
     correo: string
@@ -67,6 +83,7 @@ interface RespuestaLogin {
 const iniciarSesion = async () => {
   errores.value = []
   mensajeExito.value = ''
+  localStorage.removeItem('token')// Eliminar token actual
 
   if (!formulario.value.correo || !formulario.value.password) {
     errores.value.push('El correo y la contraseña son obligatorios.')
@@ -97,6 +114,8 @@ const iniciarSesion = async () => {
 
     mensajeExito.value = respuesta.mensaje
 
+    localStorage.setItem('token', respuesta.token)
+
     console.log('Respuesta del login:', respuesta)
 
   } catch (error: any) {
@@ -106,6 +125,28 @@ const iniciarSesion = async () => {
 
     console.error('Error al iniciar sesión:', error)
   }
+}
+
+const probarEndpointProtegido = async () => {
+  try {
+    const token = localStorage.getItem('token')
+
+    const respuesta = await $fetch('http://localhost:5283/api/protegido', {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    })
+
+    console.log('Respuesta del endpoint protegido:', respuesta)
+
+  } catch (error: any) {
+    console.error('Error al acceder al endpoint protegido:', error)
+  }
+}
+
+const cerrarSesion = () => {
+  localStorage.removeItem('token')
+  mensajeExito.value = 'Sesión cerrada correctamente.'
 }
 
 </script>
