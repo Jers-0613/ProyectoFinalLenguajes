@@ -26,7 +26,7 @@
         Iniciar sesión
       </button>
       <div v-if="errores.length > 0">
-  <p>Por favor, corrige los siguientes errores:</p>
+  <p></p>
 
   <ul>
     <li v-for="error in errores" :key="error">

@@ -3,6 +3,11 @@ using backend.Dtos;
 using backend.Models;
 using backend.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -11,6 +16,27 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     )
 );
 builder.Services.AddScoped<PasswordService>();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+
+            ValidIssuer = "ProyectoLenguajes",
+            ValidAudience = "ProyectoLenguajes",
+
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes("CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026")
+            )
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 builder.Services.AddCors(options =>
 {
@@ -32,6 +58,9 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 app.UseCors("NuxtPolicy");
+app.UseAuthentication();
+app.UseAuthorization();
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -159,7 +188,8 @@ if (!contraseñaSegura)
 app.MapPost("/api/login", async (
     LoginUsuarioDto datos,
     ApplicationDbContext db,
-    PasswordService passwordService) =>
+    PasswordService passwordService,
+    HttpContext httpContext) =>
 {
     var usuario = await db.Usuarios
         .FirstOrDefaultAsync(u => u.Correo == datos.Correo);
@@ -185,9 +215,58 @@ app.MapPost("/api/login", async (
         });
     }
 
+    if (!usuario.Activo)
+    {
+        return Results.BadRequest(new
+        {
+            mensaje = "El usuario está inactivo."
+        });
+    }
+
+    var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "IP desconocida";
+
+    var bitacora = new BitacoraLogin
+    {
+        UsuarioId = usuario.Id,
+        FechaHora = DateTime.Now,
+        Ip = ip
+    };
+
+    db.BitacoraLogin.Add(bitacora);
+
+    await db.SaveChangesAsync();
+
+    var claims = new[]
+    {
+        new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
+        new Claim(ClaimTypes.Email, usuario.Correo),
+        new Claim(ClaimTypes.Name, usuario.Nickname),
+        new Claim(ClaimTypes.Role, usuario.RolId.ToString())
+    };
+
+    var key = new SymmetricSecurityKey(
+        Encoding.UTF8.GetBytes("CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026")
+    );
+
+    var credentials = new SigningCredentials(
+        key,
+        SecurityAlgorithms.HmacSha256
+    );
+
+    var token = new JwtSecurityToken(
+        issuer: "ProyectoLenguajes",
+        audience: "ProyectoLenguajes",
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(2),
+        signingCredentials: credentials
+    );
+
+    var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
     return Results.Ok(new
     {
         mensaje = "Inicio de sesión correcto.",
+         token = tokenString,
         usuario = new
         {
             usuario.Id,
@@ -208,6 +287,21 @@ var summaries = new[]
 {
     "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
 };
+
+app.MapGet("/api/protegido", (HttpContext httpContext) =>
+{
+    var usuarioId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    var correo = httpContext.User.FindFirst(ClaimTypes.Email)?.Value;
+    var rol = httpContext.User.FindFirst(ClaimTypes.Role)?.Value;
+
+    return Results.Ok(new
+    {
+        mensaje = "Acceso autorizado.",
+        usuarioId,
+        correo,
+        rol
+    });
+}).RequireAuthorization();
 
 app.MapGet("/api/db-test", async (ApplicationDbContext db) =>
 {
