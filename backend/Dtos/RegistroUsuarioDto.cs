@@ -1,5 +1,6 @@
-//DTO (Data Transfer Object) se encargará de enviar el objeto usuario para no hacerlo en el frontend
-//frontend - dto - backen y validaciones - sql
+// DTO utilizado para recibir los datos necesarios durante el registro.
+// Separa la información recibida desde el frontend del modelo Usuario
+// que finalmente se almacena en la base de datos.
 
 namespace backend.Dtos;
 

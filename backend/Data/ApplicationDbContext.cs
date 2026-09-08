@@ -3,13 +3,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace backend.Data;
 
+// Contexto principal de Entity Framework Core. 
+// Representa la conexión entre el backend y la base de datos SQL Server.
 public class ApplicationDbContext : DbContext
 {
+
+    // Recibe las opciones de configuración de Entity Framework
+    // incluyendo la cadena de conexión a SQL Server.
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
     {
     }
 
+    // Cada DbSet representa una tabla
     public DbSet<Rol> Roles { get; set; }
 
     public DbSet<PreferenciaNotificacion> PreferenciasNotificacion { get; set; }
@@ -17,6 +23,9 @@ public class ApplicationDbContext : DbContext
     public DbSet<Usuario> Usuarios { get; set; }
 
     public DbSet<BitacoraLogin> BitacoraLogin { get; set; }
+
+    // Configura cómo las clases de C# se relacionan 
+    // con las tablas y columnas existentes en SQL Server.
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -157,6 +166,7 @@ public class ApplicationDbContext : DbContext
         });
     }
 
+    // Comprueba si el backend puede establecer conexión
     public async Task<bool> ProbarConexionAsync()
     {
         return await Database.CanConnectAsync();

@@ -67,6 +67,7 @@
       <button type="submit">
         Registrarse
       </button>
+      <!-- Muestra todos los errores encontrados durante la validación. -->
       <div v-if="errores.length > 0">
   <p>Por favor, corrige los siguientes errores:</p>
 
@@ -85,8 +86,10 @@
   </div>
 </template>
 
+
 <script setup lang="ts">
 
+// Contiene los datos que serán enviados al backend.
 const formulario = ref({
   correo: '',
   telefono: '',
@@ -100,7 +103,7 @@ const formulario = ref({
 const errores = ref<string[]>([])
 const mensajeExito = ref('')
 
-
+// Representa la estructura de la respuesta enviada por el endpoint de registro.
 interface RespuestaRegistro {
   mensaje: string
   usuario: {
@@ -116,78 +119,84 @@ interface RespuestaRegistro {
   }
 }
 
+// Valida los datos del formulario y registra // al usuario mediante el API.
 const registrarUsuario = async () => {
-  errores.value = []
-  mensajeExito.value = ''
-//Validar campos vacios
-if (
-  !formulario.value.correo ||
-  !formulario.value.telefono ||
-  !formulario.value.fechaNacimiento ||
-  !formulario.value.nickname ||
-  !formulario.value.password ||
-  !formulario.value.confirmarPassword
-) {
-  errores.value.push('Todos los campos son obligatorios.')
-}
-//Valida que las contraseñas coincidan
-if (formulario.value.password !== formulario.value.confirmarPassword) {
-  errores.value.push('Las contraseñas no coinciden.')
-}
-// Contraseña de 8 digitos o mas
-if (formulario.value.password.length < 8) {
-  errores.value.push('La contraseña debe tener al menos 8 caracteres.')
-}
-//valida que la contraseña tenga mayusculas, minusculas y digitos mediante una er
-const contraseñaSegura = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
-
-if (!contraseñaSegura.test(formulario.value.password)) {
-  errores.value.push(
-    'La contraseña debe tener al menos una mayúscula, una minúscula y un número.'
-  )
-}
-//Valida que el correo sea de extension gmail o miumg meidante una er
-const correoValido = /^[^\s@]+@(gmail\.com|miumg\.edu\.gt)$/.test(
-  formulario.value.correo
-)
-
-if (!correoValido) {
-  errores.value.push(
-    'El correo debe ser de Gmail o de la Universidad Mariano Gálvez.'
-  )
-}
-//Valida que el telefono sea de 8 digitos
-const telefonoValido = /^\d{8}$/.test(
-  formulario.value.telefono
-)
-
-if (!telefonoValido) {
-  errores.value.push(
-    'El teléfono debe contener exactamente 8 dígitos.'
-  )
-}
-//Valida si se agregó algun error a la lista
-if (errores.value.length > 0) {
-  return
-}
-
-  try {
-    const respuesta = await $fetch<RespuestaRegistro>('http://localhost:5283/api/usuarios', {
-      method: 'POST',
-      body: formulario.value
-    })
-
-    mensajeExito.value = respuesta.mensaje  
-
-    console.log('Respuesta de la API:', respuesta)
-
-  } catch (error: any) {
-    errores.value.push(
-    error?.data?.mensaje || 'Ocurrió un error al registrar el usuario.'
-  )
-
-    console.error('Error al registrar usuario:', error)
+    errores.value = []
+    mensajeExito.value = ''
+  //Validar campos vacios
+  if (
+    !formulario.value.correo ||
+    !formulario.value.telefono ||
+    !formulario.value.fechaNacimiento ||
+    !formulario.value.nickname ||
+    !formulario.value.password ||
+    !formulario.value.confirmarPassword
+  ) {
+    errores.value.push('Todos los campos son obligatorios.')
   }
+  //Valida que las contraseñas coincidan
+  if (formulario.value.password !== formulario.value.confirmarPassword) {
+    errores.value.push('Las contraseñas no coinciden.')
+  }
+  // Contraseña de 8 digitos o mas
+  if (formulario.value.password.length < 8) {
+    errores.value.push('La contraseña debe tener al menos 8 caracteres.')
+  }
+  //valida que la contraseña tenga mayusculas, minusculas y digitos mediante una er
+  const contraseñaSegura = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
+
+  if (!contraseñaSegura.test(formulario.value.password)) {
+    errores.value.push(
+      'La contraseña debe tener al menos una mayúscula, una minúscula y un número.'
+    )
+  }
+  //Valida que el correo sea de extension gmail o miumg meidante una er
+  const correoValido = /^[^\s@]+@(gmail\.com|miumg\.edu\.gt)$/.test(
+    formulario.value.correo
+  )
+
+  if (!correoValido) {
+    errores.value.push(
+      'El correo debe ser de Gmail o de la Universidad Mariano Gálvez.'
+    )
+  }
+  //Valida que el telefono sea de 8 digitos
+  const telefonoValido = /^\d{8}$/.test(
+    formulario.value.telefono
+  )
+
+  if (!telefonoValido) {
+    errores.value.push(
+      'El teléfono debe contener exactamente 8 dígitos.'
+    )
+  }
+  //Valida si se agregó algun error a la lista
+  if (errores.value.length > 0) {
+    return
+  }
+
+    try {
+      // Envía los datos validados al endpoint de registro.
+      const respuesta = await $fetch<RespuestaRegistro>('http://localhost:5283/api/usuarios', {
+        method: 'POST',
+        body: formulario.value
+      })
+      
+      mensajeExito.value = respuesta.mensaje  
+      
+      setTimeout(() => {
+        navigateTo('/login')
+      }, 2000)
+
+      console.log('Respuesta de la API:', respuesta)
+
+    } catch (error: any) {
+      errores.value.push(
+      error?.data?.mensaje || 'Ocurrió un error al registrar el usuario.'
+    )
+
+      console.error('Error al registrar usuario:', error)
+    }
 } 
 
 </script>

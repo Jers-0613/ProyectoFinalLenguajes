@@ -26,6 +26,7 @@
         Iniciar sesión
       </button>
 
+      <!-- Botón utilizado durante el desarrollo para comprobar que el token permite acceder a un endpoint protegido. Se eliminará cuando terminemos las pruebas de autenticación. -->
       <button
         type="button"
         @click="probarEndpointProtegido"
@@ -33,6 +34,7 @@
         Probar acceso protegido
       </button>
 
+      <!-- Botón temporal de desarrollo. El cierre de sesión definitivo se realiza desde el perfil. -->
       <button
         type="button"
         @click="cerrarSesion"
@@ -57,33 +59,49 @@
   </div>
 </template>
 
+
+
 <script setup lang="ts">
 
 import { ref } from 'vue'
+import { useAuth } from '~/composables/useAuth'
 
+//Datos que el user ingresa en el formulario
 const formulario = ref({
   correo: '',
   password: ''
 })
 
+//Arreglo de errores y mensaje mostrado despues de una operacion exitosa
 const errores = ref<string[]>([])
 const mensajeExito = ref('')
+
+// Representa la información del usuario que devuelve el backend.
+interface Usuario {
+  id: number
+  correo: string
+  telefono: string
+  fechaNacimiento: string
+  nickname: string
+  preferenciaNotificacionId: number
+  rolId: number
+  activo: boolean
+  fechaRegistro: string
+}
+
+// Representa la respuesta completa del endpoint de login.
 interface RespuestaLogin {
   mensaje: string
   token: string
-  usuario: {
-    id: number
-    correo: string
-    nickname: string
-    rolId: number
-    activo: boolean
-  }
+  usuario: Usuario
 }
+
+const { guardarSesion, cerrarSesion: cerrarSesionAuth } = useAuth()
 
 const iniciarSesion = async () => {
   errores.value = []
   mensajeExito.value = ''
-  localStorage.removeItem('token')// Eliminar token actual
+  
 
   if (!formulario.value.correo || !formulario.value.password) {
     errores.value.push('El correo y la contraseña son obligatorios.')
@@ -99,11 +117,13 @@ const iniciarSesion = async () => {
     )
   }
 
+  // Si existe algún error de validación, no se realiza la solicitud al backend.
   if (errores.value.length > 0) {
     return
   }
 
   try {
+    // Envía las credenciales al endpoint de autenticación.
     const respuesta = await $fetch<RespuestaLogin>(
       'http://localhost:5283/api/login',
       {
@@ -114,9 +134,11 @@ const iniciarSesion = async () => {
 
     mensajeExito.value = respuesta.mensaje
 
-    localStorage.setItem('token', respuesta.token)
+    guardarSesion(respuesta.usuario, respuesta.token) 
 
+    // Después de autenticarse, el usuario entra a su perfil.
     console.log('Respuesta del login:', respuesta)
+    await navigateTo('/perfil')
 
   } catch (error: any) {
     errores.value.push(
@@ -127,6 +149,7 @@ const iniciarSesion = async () => {
   }
 }
 
+// Prueba temporal para comprobar el acceso a un endpoint protegido utilizando el JWT almacenado en localStorage.
 const probarEndpointProtegido = async () => {
   try {
     const token = localStorage.getItem('token')
@@ -145,7 +168,7 @@ const probarEndpointProtegido = async () => {
 }
 
 const cerrarSesion = () => {
-  localStorage.removeItem('token')
+  cerrarSesionAuth()
   mensajeExito.value = 'Sesión cerrada correctamente.'
 }
 

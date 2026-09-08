@@ -1,43 +1,100 @@
+
 using backend.Data;
 using backend.Dtos;
 using backend.Models;
 using backend.Services;
-using Microsoft.EntityFrameworkCore;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
+
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text;
+
+
+// ==========================================================
+// CONFIGURACIÓN INICIAL
+// ==========================================================
 
 var builder = WebApplication.CreateBuilder(args);
+
+
+// ==========================================================
+// BASE DE DATOS
+// ==========================================================
+
+// Registra Entity Framework Core y configura la conexión
+// con SQL Server utilizando la cadena definida en configuración.
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")
     )
 );
+
+
+// ==========================================================
+// SERVICIOS
+// ==========================================================
+
+// Permite utilizar PasswordService mediante inyección de dependencias.
+// Este servicio se encarga de generar y comprobar los hashes
+// de las contraseñas.
 builder.Services.AddScoped<PasswordService>();
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+
+// ==========================================================
+// AUTENTICACIÓN JWT
+// ==========================================================
+
+// Configura JWT como mecanismo de autenticación de la API.
+builder.Services.AddAuthentication(
+    JwtBearerDefaults.AuthenticationScheme
+)
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
+        // Comprueba que el token haya sido generado
+        // por el emisor esperado.
+        ValidateIssuer = true,
 
-            ValidIssuer = "ProyectoLenguajes",
-            ValidAudience = "ProyectoLenguajes",
+        // Comprueba que el token esté destinado
+        // a esta aplicación.
+        ValidateAudience = true,
 
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes("CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026")
+        // Comprueba que el token no haya expirado.
+        ValidateLifetime = true,
+
+        // Comprueba que el token haya sido firmado
+        // con nuestra clave.
+        ValidateIssuerSigningKey = true,
+
+        ValidIssuer = "ProyectoLenguajes",
+        ValidAudience = "ProyectoLenguajes",
+
+        // Clave temporal utilizada durante el desarrollo.
+        // Posteriormente deberá trasladarse a configuración segura.
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(
+                "CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026"
             )
-        };
-    });
+        )
+    };
+});
 
+
+// Permite utilizar .RequireAuthorization()
+// en los endpoints que necesiten autenticación.
 builder.Services.AddAuthorization();
 
+
+// ==========================================================
+// CORS
+// ==========================================================
+
+// Permite que el frontend Nuxt, ejecutándose en localhost:3000,
+// pueda realizar solicitudes al backend.
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("NuxtPolicy", policy =>
@@ -48,67 +105,105 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod();
     });
 });
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+
+
+// ==========================================================
+// SWAGGER / OPENAPI
+// ==========================================================
+
+// Permite explorar y probar los endpoints de la API
+// durante el desarrollo.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 
-//============= APIS=========================
+// ==========================================================
+// CREACIÓN DE LA APLICACIÓN
+// ==========================================================
 
 var app = builder.Build();
+
+
+// ==========================================================
+// MIDDLEWARE
+// ==========================================================
+
+// Permite las solicitudes provenientes del frontend.
 app.UseCors("NuxtPolicy");
+
+// Comprueba los tokens JWT antes de permitir
+// el acceso a endpoints protegidos.
 app.UseAuthentication();
+
+// Aplica las reglas de autorización.
 app.UseAuthorization();
 
-// Configure the HTTP request pipeline.
+
+// Swagger solamente se habilita durante el desarrollo.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
+
+// HTTPS se habilitará posteriormente como parte
+// de la configuración de seguridad y despliegue.
 // app.UseHttpsRedirection();
+
+
+// ==========================================================
+// ENDPOINT: REGISTRO DE USUARIOS
+// ==========================================================
 
 app.MapPost("/api/usuarios", async (
     RegistroUsuarioDto datos,
     ApplicationDbContext db,
     PasswordService passwordService) =>
 {
-
-
-    
-if (datos.Password != datos.ConfirmarPassword)
-{
-    return Results.BadRequest(new
+    // Comprueba que ambas contraseñas coincidan.
+    if (datos.Password != datos.ConfirmarPassword)
     {
-        mensaje = "Las contraseñas no coinciden."
-    });
-}
+        return Results.BadRequest(new
+        {
+            mensaje = "Las contraseñas no coinciden."
+        });
+    }
 
-if (datos.Password.Length < 8)
-{
-    return Results.BadRequest(new
+
+    // Comprueba la longitud mínima de la contraseña.
+    if (datos.Password.Length < 8)
     {
-        mensaje = "La contraseña debe tener al menos 8 caracteres."
-    });
-}
+        return Results.BadRequest(new
+        {
+            mensaje = "La contraseña debe tener al menos 8 caracteres."
+        });
+    }
 
-var contraseñaSegura = System.Text.RegularExpressions.Regex.IsMatch(
-    datos.Password,
-    @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"
-);
 
-if (!contraseñaSegura)
-{
-    return Results.BadRequest(new
+    // Comprueba que la contraseña contenga
+    // mayúscula, minúscula y número.
+    var contraseñaSegura =
+        System.Text.RegularExpressions.Regex.IsMatch(
+            datos.Password,
+            @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"
+        );
+
+
+    if (!contraseñaSegura)
     {
-        mensaje = "La contraseña debe tener al menos una mayúscula, una minúscula y un número."
-    });
-}
+        return Results.BadRequest(new
+        {
+            mensaje =
+                "La contraseña debe tener al menos una mayúscula, una minúscula y un número."
+        });
+    }
 
+
+    // Comprueba que el correo no esté registrado.
     bool correoExiste = await db.Usuarios
         .AnyAsync(u => u.Correo == datos.Correo);
+
 
     if (correoExiste)
     {
@@ -118,8 +213,11 @@ if (!contraseñaSegura)
         });
     }
 
+
+    // Comprueba que el nickname no esté registrado.
     bool nicknameExiste = await db.Usuarios
         .AnyAsync(u => u.Nickname == datos.Nickname);
+
 
     if (nicknameExiste)
     {
@@ -129,19 +227,32 @@ if (!contraseñaSegura)
         });
     }
 
+
+    // Comprueba que la preferencia de notificación
+    // seleccionada exista en la base de datos.
     var preferenciaExiste = await db.PreferenciasNotificacion
-        .AnyAsync(p => p.Id == datos.PreferenciaNotificacionId);
+        .AnyAsync(p =>
+            p.Id == datos.PreferenciaNotificacionId
+        );
+
 
     if (!preferenciaExiste)
     {
         return Results.BadRequest(new
         {
-            mensaje = "La preferencia de notificación no es válida."
+            mensaje =
+                "La preferencia de notificación no es válida."
         });
     }
 
+
+    // Todos los usuarios nuevos reciben inicialmente
+    // el rol ANALISTA.
     var rolAnalista = await db.Roles
-        .FirstOrDefaultAsync(r => r.Nombre == "ANALISTA");
+        .FirstOrDefaultAsync(r =>
+            r.Nombre == "ANALISTA"
+        );
+
 
     if (rolAnalista == null)
     {
@@ -150,26 +261,42 @@ if (!contraseñaSegura)
         );
     }
 
+
+    // Crea la entidad Usuario utilizando los datos
+    // previamente validados.
     var usuario = new Usuario
     {
         Correo = datos.Correo,
         Telefono = datos.Telefono,
         FechaNacimiento = datos.FechaNacimiento,
         Nickname = datos.Nickname,
-        PasswordHash = passwordService.HashPassword(datos.Password),
-        PreferenciaNotificacionId = datos.PreferenciaNotificacionId,
+
+        // La contraseña nunca se almacena directamente.
+        PasswordHash =
+            passwordService.HashPassword(datos.Password),
+
+        PreferenciaNotificacionId =
+            datos.PreferenciaNotificacionId,
+
         RolId = rolAnalista.Id,
+
         Activo = true,
+
         FechaRegistro = DateTime.Now
     };
+
 
     db.Usuarios.Add(usuario);
 
     await db.SaveChangesAsync();
 
+
+    // Devuelve únicamente información necesaria del usuario.
+    // El PasswordHash nunca se envía al frontend.
     return Results.Ok(new
     {
         mensaje = "Usuario registrado correctamente.",
+
         usuario = new
         {
             usuario.Id,
@@ -185,15 +312,24 @@ if (!contraseñaSegura)
     });
 });
 
+
+// ==========================================================
+// ENDPOINT: LOGIN
+// ==========================================================
+
 app.MapPost("/api/login", async (
     LoginUsuarioDto datos,
     ApplicationDbContext db,
     PasswordService passwordService,
     HttpContext httpContext) =>
 {
+    // Busca al usuario utilizando su correo.
     var usuario = await db.Usuarios
-        .FirstOrDefaultAsync(u => u.Correo == datos.Correo);
+        .FirstOrDefaultAsync(u =>
+            u.Correo == datos.Correo);
 
+
+    // No se revela si el correo existe o no.
     if (usuario == null)
     {
         return Results.BadRequest(new
@@ -202,10 +338,14 @@ app.MapPost("/api/login", async (
         });
     }
 
-    bool contraseñaCorrecta = passwordService.VerifyPassword(
-        usuario.PasswordHash,
-        datos.Password
-    );
+
+    // Comprueba la contraseña utilizando el hash almacenado.
+    bool contraseñaCorrecta =
+        passwordService.VerifyPassword(
+            usuario.PasswordHash,
+            datos.Password
+        );
+
 
     if (!contraseñaCorrecta)
     {
@@ -215,6 +355,8 @@ app.MapPost("/api/login", async (
         });
     }
 
+
+    // Un usuario inactivo no puede iniciar sesión.
     if (!usuario.Activo)
     {
         return Results.BadRequest(new
@@ -223,8 +365,16 @@ app.MapPost("/api/login", async (
         });
     }
 
-    var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "IP desconocida";
 
+    // Obtiene la dirección IP desde la que se realizó el login.
+    // Esta información se utiliza para la bitácora.
+    var ip =
+        httpContext.Connection.RemoteIpAddress?.ToString()
+        ?? "IP desconocida";
+
+
+    // Registra el inicio de sesión para mantener
+    // la bitácora de accesos del sistema.
     var bitacora = new BitacoraLogin
     {
         UsuarioId = usuario.Id,
@@ -232,27 +382,53 @@ app.MapPost("/api/login", async (
         Ip = ip
     };
 
+
     db.BitacoraLogin.Add(bitacora);
 
     await db.SaveChangesAsync();
 
+
+    // Información que se incluirá dentro del JWT.
     var claims = new[]
     {
-        new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
-        new Claim(ClaimTypes.Email, usuario.Correo),
-        new Claim(ClaimTypes.Name, usuario.Nickname),
-        new Claim(ClaimTypes.Role, usuario.RolId.ToString())
+        new Claim(
+            ClaimTypes.NameIdentifier,  
+            usuario.Id.ToString()
+        ),
+
+        new Claim(
+            ClaimTypes.Email,
+            usuario.Correo
+        ),
+
+        new Claim(
+            ClaimTypes.Name,
+            usuario.Nickname
+        ),
+
+        new Claim(
+            ClaimTypes.Role,
+            usuario.RolId.ToString()
+        )
     };
 
+
+    // Clave temporal utilizada para firmar el JWT.
+    // Posteriormente deberá trasladarse a configuración segura.
     var key = new SymmetricSecurityKey(
-        Encoding.UTF8.GetBytes("CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026")
+        Encoding.UTF8.GetBytes(
+            "CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026"
+        )
     );
+
 
     var credentials = new SigningCredentials(
         key,
         SecurityAlgorithms.HmacSha256
     );
 
+
+    // Genera un token válido durante dos horas.
     var token = new JwtSecurityToken(
         issuer: "ProyectoLenguajes",
         audience: "ProyectoLenguajes",
@@ -261,38 +437,67 @@ app.MapPost("/api/login", async (
         signingCredentials: credentials
     );
 
-    var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
+    var tokenString =
+        new JwtSecurityTokenHandler().WriteToken(token);
+
+
+    // Devuelve el token y la información necesaria
+    // para mantener la sesión en el frontend.
     return Results.Ok(new
     {
         mensaje = "Inicio de sesión correcto.",
-         token = tokenString,
+
+        token = tokenString,
+
         usuario = new
         {
-            usuario.Id,
-            usuario.Correo,
-            usuario.Nickname,
-            usuario.RolId,
-            usuario.Activo
+            id = usuario.Id,
+            correo = usuario.Correo,
+            telefono = usuario.Telefono,
+            fechaNacimiento = usuario.FechaNacimiento,
+            nickname = usuario.Nickname,
+            preferenciaNotificacionId = usuario.PreferenciaNotificacionId,
+            rolId = usuario.RolId,
+            activo = usuario.Activo,
+            fechaRegistro = usuario.FechaRegistro
         }
     });
 });
 
+
+// ==========================================================
+// ENDPOINT DE PRUEBA
+// ==========================================================
+
+// Endpoint temporal utilizado para comprobar
+// que el backend responde correctamente.
 app.MapGet("/api/test", () =>
 {
     return "API funcionando correctamente";
 });
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
 
+// ==========================================================
+// ENDPOINT PROTEGIDO
+// ==========================================================
+
+// Endpoint temporal utilizado para comprobar
+// que la autenticación JWT funciona correctamente.
 app.MapGet("/api/protegido", (HttpContext httpContext) =>
 {
-    var usuarioId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-    var correo = httpContext.User.FindFirst(ClaimTypes.Email)?.Value;
-    var rol = httpContext.User.FindFirst(ClaimTypes.Role)?.Value;
+    var usuarioId =
+        httpContext.User
+            .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    var correo =
+        httpContext.User
+            .FindFirst(ClaimTypes.Email)?.Value;
+
+    var rol =
+        httpContext.User
+            .FindFirst(ClaimTypes.Role)?.Value;
+
 
     return Results.Ok(new
     {
@@ -301,42 +506,103 @@ app.MapGet("/api/protegido", (HttpContext httpContext) =>
         correo,
         rol
     });
+
 }).RequireAuthorization();
 
-app.MapGet("/api/db-test", async (ApplicationDbContext db) =>
+
+// ==========================================================
+// ENDPOINT: USUARIO AUTENTICADO
+// ==========================================================
+
+// Devuelve la información del usuario correspondiente
+// al JWT utilizado en la solicitud.
+app.MapGet("/api/usuario", async (
+    HttpContext httpContext,
+    ApplicationDbContext db) =>
 {
-    bool conectado = await db.ProbarConexionAsync();
+    var usuarioId =
+        httpContext.User
+            .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+
+    if (usuarioId == null)
+    {
+        return Results.Unauthorized();
+    }
+
+
+    // Busca en la base de datos la información actual
+    // del usuario autenticado.
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u =>
+            u.Id == int.Parse(usuarioId));
+
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+
+    // No se devuelve información sensible como PasswordHash.
+    return Results.Ok(new
+    {
+        id = usuario.Id,
+        correo = usuario.Correo,
+        telefono = usuario.Telefono,
+        fechaNacimiento = usuario.FechaNacimiento,
+        nickname = usuario.Nickname,
+        preferenciaNotificacionId = usuario.PreferenciaNotificacionId,
+        rolId = usuario.RolId,
+        activo = usuario.Activo,
+        fechaRegistro = usuario.FechaRegistro
+    });
+
+}).RequireAuthorization();
+
+
+// ==========================================================
+// ENDPOINT DE PRUEBA DE BASE DE DATOS
+// ==========================================================
+
+// Endpoint temporal para comprobar que el backend
+// puede conectarse correctamente con SQL Server.
+app.MapGet("/api/db-test", async (
+    ApplicationDbContext db) =>
+{
+    bool conectado =
+        await db.ProbarConexionAsync();
+
 
     return conectado
         ? "Conexión con SQL Server funcionando correctamente"
         : "No se pudo conectar con SQL Server";
 });
 
-app.MapGet("/api/roles", async (ApplicationDbContext db) =>
+
+// ==========================================================
+// ENDPOINT: ROLES
+// ==========================================================
+
+// Devuelve los roles registrados en la base de datos.
+// Actualmente se utiliza para comprobar que la tabla
+// Roles está correctamente conectada con el backend.
+app.MapGet("/api/roles", async (
+    ApplicationDbContext db) =>
 {
-    var roles = await db.Roles.ToListAsync();
+    var roles =
+        await db.Roles.ToListAsync();
 
     return roles;
 });
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+
+// ==========================================================
+// INICIO DEL BACKEND
+// ==========================================================
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
