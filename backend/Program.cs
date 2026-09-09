@@ -565,6 +565,72 @@ app.MapGet("/api/usuario", async (
 
 
 // ==========================================================
+// ENDPOINT: CAMBIO DE CONTRASEÑA
+// ==========================================================
+
+app.MapPut("/api/usuario/password", async (
+    CambioPasswordDto dto,
+    HttpContext httpContext,
+    ApplicationDbContext db,
+    PasswordService passwordService) =>
+{
+    var usuarioId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+    if (usuarioId == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Id == int.Parse(usuarioId));
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+    if (dto.NuevaPassword != dto.ConfirmarNuevaPassword)
+    {
+        return Results.BadRequest(new
+        {
+            mensaje = "Las nuevas contraseñas no coinciden."
+        });
+    }
+
+    if (!passwordService.VerifyPassword(usuario.PasswordHash, dto.PasswordActual))
+    {
+        return Results.BadRequest(new
+        {
+            mensaje = "La contraseña actual es incorrecta."
+        });
+    }
+
+    if (dto.NuevaPassword.Length < 8 ||
+        !System.Text.RegularExpressions.Regex.IsMatch(
+            dto.NuevaPassword,
+            @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"))
+    {
+        return Results.BadRequest(new
+        {
+            mensaje = "La nueva contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número."
+        });
+    }
+
+    usuario.PasswordHash = passwordService.HashPassword(dto.NuevaPassword);
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        mensaje = "Contraseña actualizada correctamente."
+    });
+}).RequireAuthorization();
+
+
+// ==========================================================
 // ENDPOINT DE PRUEBA DE BASE DE DATOS
 // ==========================================================
 
