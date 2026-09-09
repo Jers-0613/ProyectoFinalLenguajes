@@ -12,6 +12,26 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
+using System.Security.Cryptography;
+
+//Genera una contraseña aleatoria de 10 caracteres.
+string GenerarPasswordTemporal()
+{
+    const string caracteres =
+        "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+
+    var resultado = new char[10];
+
+    for (int i = 0; i < resultado.Length; i++)
+    {
+        resultado[i] = caracteres[
+            RandomNumberGenerator.GetInt32(caracteres.Length)
+        ];
+    }
+
+    return new string(resultado);
+}
+
 
 // ==========================================================
 // CONFIGURACIÓN INICIAL
@@ -460,10 +480,53 @@ app.MapPost("/api/login", async (
             preferenciaNotificacionId = usuario.PreferenciaNotificacionId,
             rolId = usuario.RolId,
             activo = usuario.Activo,
-            fechaRegistro = usuario.FechaRegistro
+            fechaRegistro = usuario.FechaRegistro,
+            debeCambiarPassword = usuario.DebeCambiarPassword
         }
     });
 });
+
+// ==========================================================
+// ENDPOINT: RECUPERAR CONTRASEÑA OLVIDADADA
+// ==========================================================
+
+app.MapPost("/api/recuperar-password", async (
+    RecuperarPasswordDto dto,
+    ApplicationDbContext db,
+    PasswordService passwordService) =>
+{
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Correo == dto.Correo);
+
+    // No revelamos si el correo existe o no.
+    if (usuario == null)
+    {
+        return Results.Ok(new
+        {
+            mensaje = "Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña."
+        });
+    }
+
+    var passwordTemporal = GenerarPasswordTemporal();
+
+    usuario.PasswordHash = passwordService.HashPassword(passwordTemporal);
+    usuario.DebeCambiarPassword = true;
+
+    await db.SaveChangesAsync();
+
+    // Temporalmente mostramos la contraseña en la consola
+    // mientras se implemente el envío real por corrro
+    Console.WriteLine($"[DESARROLLO] Password temporal para {usuario.Correo}: {passwordTemporal}");
+
+    return Results.Ok(new
+    {
+        mensaje = "Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña."
+    });
+});
+
+
+
+
 
 
 // ==========================================================
@@ -620,6 +683,7 @@ app.MapPut("/api/usuario/password", async (
     }
 
     usuario.PasswordHash = passwordService.HashPassword(dto.NuevaPassword);
+    usuario.DebeCambiarPassword = false;
 
     await db.SaveChangesAsync();
 

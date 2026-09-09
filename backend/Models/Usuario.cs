@@ -26,5 +26,7 @@ public class Usuario
 
     public bool Activo { get; set; }
 
+    public bool DebeCambiarPassword { get; set; }
+
     public DateTime FechaRegistro { get; set; }
 }

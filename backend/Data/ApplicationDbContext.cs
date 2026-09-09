@@ -122,6 +122,10 @@ public class ApplicationDbContext : DbContext
                 .HasColumnName("activo")
                 .IsRequired();
 
+            entity.Property(e => e.DebeCambiarPassword)
+                .HasColumnName("debeCambiarPassword")
+                .IsRequired();
+
             entity.Property(e => e.FechaRegistro)
                 .HasColumnName("fechaRegistro")
                 .IsRequired();
