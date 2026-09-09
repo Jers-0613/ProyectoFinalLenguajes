@@ -26,6 +26,10 @@
         Iniciar sesión
       </button>
 
+      <NuxtLink to="/recuperar-password">
+        ¿Olvidaste tu contraseña?
+      </NuxtLink>
+
       <!-- Botón utilizado durante el desarrollo para comprobar que el token permite acceder a un endpoint protegido. Se eliminará cuando terminemos las pruebas de autenticación. -->
       <button
         type="button"
@@ -87,6 +91,7 @@ interface Usuario {
   rolId: number
   activo: boolean
   fechaRegistro: string
+  debeCambiarPassword: boolean
 }
 
 // Representa la respuesta completa del endpoint de login.
@@ -135,6 +140,7 @@ const iniciarSesion = async () => {
     mensajeExito.value = respuesta.mensaje
 
     guardarSesion(respuesta.usuario, respuesta.token) 
+    //console.log('¿Debe cambiar contraseña?', respuesta.usuario.debeCambiarPassword) se utilizó para verificar que se comunicó que se debia cambiar contraseña
 
     // Después de autenticarse, el usuario entra a su perfil.
     console.log('Respuesta del login:', respuesta)

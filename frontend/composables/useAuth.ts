@@ -15,6 +15,7 @@ interface Usuario {
   rolId: number
   activo: boolean
   fechaRegistro: string
+  debeCambiarPassword: boolean
 }
 
 export const useAuth = () => {

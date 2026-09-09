@@ -6,6 +6,13 @@
       <button @click="salir">Cerrar sesión</button>
     </nav>
     <h1>Mi perfil</h1>
+    <div v-if="usuario?.debeCambiarPassword">
+      <h2>Debes cambiar tu contraseña</h2>
+
+      <p>
+        Estás utilizando una contraseña temporal. Debes establecer una nueva contraseña antes de continuar.
+      </p>
+    </div>
 
     <p><strong>Correo:</strong> {{ usuario?.correo }}</p>
     <p><strong>Teléfono:</strong> {{ usuario?.telefono }}</p>
@@ -103,6 +110,9 @@ const cambiarPassword = async () => {
   )
 
   mensajePassword.value = respuesta.mensaje
+  if (usuario.value) {
+    usuario.value.debeCambiarPassword = false
+  }
 
 } catch (error: any) {
   errorPassword.value =
