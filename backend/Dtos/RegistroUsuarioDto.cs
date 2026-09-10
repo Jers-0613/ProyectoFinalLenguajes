@@ -19,4 +19,10 @@ public class RegistroUsuarioDto
     public string ConfirmarPassword { get; set; } = string.Empty;
 
     public int PreferenciaNotificacionId { get; set; }
-}
+
+    public string FotoOriginal { get; set; } = string.Empty;
+
+    public string RostroRecortado { get; set; } = string.Empty;
+
+    public string FotoModificada { get; set; } = string.Empty;
+    }

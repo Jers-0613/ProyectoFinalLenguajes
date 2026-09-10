@@ -24,6 +24,8 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<BitacoraLogin> BitacoraLogin { get; set; }
 
+    public DbSet<DatosBiometricos> DatosBiometricos { get; set; }
+
     // Configura cómo las clases de C# se relacionan 
     // con las tablas y columnas existentes en SQL Server.
 
@@ -103,12 +105,12 @@ public class ApplicationDbContext : DbContext
                 .IsRequired();
 
             entity.Property(e => e.FotoOriginal)
-                .HasColumnName("fotoOriginal")
-                .HasMaxLength(500);
+                .HasColumnName("fotoOriginal");
+                
 
             entity.Property(e => e.FotoModificada)
-                .HasColumnName("fotoModificada")
-                .HasMaxLength(500);
+                .HasColumnName("fotoModificada");
+                
 
             entity.Property(e => e.PreferenciaNotificacionId)
                 .HasColumnName("preferenciaNotificacionId")
@@ -168,6 +170,33 @@ public class ApplicationDbContext : DbContext
                 .HasForeignKey(e => e.UsuarioId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        modelBuilder.Entity<DatosBiometricos>(entity =>
+        {
+            entity.ToTable("DatosBiometricos");
+
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id)
+                .HasColumnName("id");
+
+            entity.Property(e => e.UsuarioId)
+                .HasColumnName("usuarioId")
+                .IsRequired();
+
+            entity.Property(e => e.RostroRecortado)
+                .HasColumnName("rostroRecortado")
+                .IsRequired();
+
+            entity.HasOne<Usuario>()
+                .WithMany()
+                .HasForeignKey(e => e.UsuarioId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => e.UsuarioId)
+                .IsUnique();
+        });
+
     }
 
     // Comprueba si el backend puede establecer conexión

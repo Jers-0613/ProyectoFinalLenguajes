@@ -290,6 +290,8 @@ app.MapPost("/api/usuarios", async (
         Telefono = datos.Telefono,
         FechaNacimiento = datos.FechaNacimiento,
         Nickname = datos.Nickname,
+        FotoOriginal = datos.FotoOriginal,
+        FotoModificada = datos.FotoModificada,
 
         // La contraseña nunca se almacena directamente.
         PasswordHash =
@@ -307,6 +309,16 @@ app.MapPost("/api/usuarios", async (
 
 
     db.Usuarios.Add(usuario);
+
+    await db.SaveChangesAsync();
+
+    var datosBiometricos = new DatosBiometricos
+    {
+        UsuarioId = usuario.Id,
+        RostroRecortado = datos.RostroRecortado
+    };
+
+    db.DatosBiometricos.Add(datosBiometricos);
 
     await db.SaveChangesAsync();
 
