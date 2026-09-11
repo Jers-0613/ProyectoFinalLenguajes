@@ -6,6 +6,136 @@
       <button @click="salir">Cerrar sesión</button>
     </nav>
     <h1>Mi perfil</h1>
+    <div>
+      <h2>Fotografía</h2>
+
+      <!-- Foto actual -->
+      <div v-if="fotoModificada">
+
+        <img
+          :src="fotoModificada"
+          alt="Fotografía de perfil"
+          width="305"
+        />
+
+      </div>
+
+      <!-- Cambiar fotografía -->
+      <button
+        type="button"
+        @click="iniciarCamara"
+      >
+        Cambiar fotografía
+      </button>
+
+      <!-- Cámara -->
+      <div v-if="stream">
+
+        <video
+          ref="video"
+          autoplay
+          playsinline
+          width="320"
+          height="240"
+        ></video>
+
+        <br />
+
+        <button
+          type="button"
+          @click="tomarFotoNueva"
+        >
+          Tomar fotografía
+        </button>
+
+      </div>
+
+      <!-- Nueva fotografía -->
+      <div v-if="rostroRecortadoNuevo">
+
+        <h3>Nueva fotografía</h3>
+
+        <img
+          :src="fotoModificadaNueva || rostroRecortadoNuevo"
+          alt="Nueva fotografía"
+          width="305"
+        />
+
+        <div>
+
+          <label>Filtro:</label>
+
+          <select
+            v-model="filtroSeleccionado"
+            @change="aplicarFiltroNueva"
+          >
+            <option value="ninguno">Ninguno</option>
+            <option value="grises">Grises</option>
+            <option value="sepia">Sepia</option>
+            <option value="negativo">Negativo</option>
+          </select>
+
+        </div>
+
+        <div>
+
+          <p>Stickers</p>
+
+          <button
+            :disabled="cantidadStickers >= 10"
+            type="button"
+            @click="agregarStickerNuevo('😎')"
+          >
+            😎
+          </button>
+
+          <button
+            :disabled="cantidadStickers >= 10"
+            type="button"
+            @click="agregarStickerNuevo('👑')"
+          >
+            👑
+          </button>
+
+          <button
+            :disabled="cantidadStickers >= 10"
+            type="button"
+            @click="agregarStickerNuevo('❤️')"
+          >
+            ❤️
+          </button>
+
+          <button
+            :disabled="cantidadStickers >= 10"
+            type="button"
+            @click="agregarStickerNuevo('⭐')"
+          >
+            ⭐
+          </button>
+
+          <button
+            :disabled="cantidadStickers >= 10"
+            type="button"
+            @click="agregarStickerNuevo('🔥')"
+          >
+            🔥
+          </button>
+
+        </div>
+
+        <br />
+
+        <button
+          type="button"
+          @click="guardarNuevaFotografia"
+        >
+          Guardar cambios
+        </button>
+
+      </div>
+
+    </div>
+
     <div v-if="usuario?.debeCambiarPassword">
       <h2>Debes cambiar tu contraseña</h2>
 
@@ -54,11 +184,18 @@
     <p v-if="mensajePassword">
       {{ mensajePassword }}
     </p>
+
+    
     
   </div>
 </template>
 
 <script setup lang="ts">
+
+const fotoModificada = ref<string | null>(null)
+const fotoOriginalNueva = ref<string | null>(null)
+const rostroRecortadoNuevo = ref<string | null>(null)
+const fotoModificadaNueva = ref<string | null>(null)
 
 const { usuario , cerrarSesion} = useAuth()
 const passwordActual = ref('')
@@ -67,6 +204,206 @@ const confirmarNuevaPassword = ref('')
 
 const mensajePassword = ref('')
 const errorPassword = ref('')
+
+
+
+const {
+  video,
+  stream,
+  iniciarCamara,
+  tomarFoto: capturarFoto,
+  detenerCamara
+} = useCamara()
+
+const {
+  detectarRostro
+} = useReconocimientoFacial()
+
+const {
+  filtroSeleccionado,
+  cantidadStickers,
+  aplicarFiltro: aplicarFiltroBase,
+  agregarSticker: agregarStickerBase,
+  reiniciarStickers
+} = usePersonalizacionFoto()
+
+
+const tomarFotoNueva = async () => {
+
+  cantidadStickers.value = 0
+
+  fotoModificadaNueva.value = null
+
+  const foto = capturarFoto()
+
+  if (!foto) {
+    errorPassword.value =
+      'No fue posible capturar la fotografía.'
+    return
+  }
+
+  fotoOriginalNueva.value = foto
+
+  const rostro = await detectarRostro(
+    fotoOriginalNueva.value
+  )
+
+  if (!rostro) {
+    errorPassword.value =
+      'No se detectó ningún rostro en la fotografía.'
+    return
+  }
+
+  rostroRecortadoNuevo.value = rostro
+}
+
+
+const aplicarFiltroNueva = async () => {
+
+  cantidadStickers.value = 0
+
+  if (!rostroRecortadoNuevo.value) {
+    return
+  }
+
+  if (filtroSeleccionado.value === 'ninguno') {
+    fotoModificadaNueva.value = null
+    return
+  }
+
+  try {
+
+    fotoModificadaNueva.value =
+      await aplicarFiltroBase(
+        rostroRecortadoNuevo.value,
+        filtroSeleccionado.value
+      )
+
+  } catch (error) {
+
+    errorPassword.value =
+      'No fue posible aplicar el filtro.'
+
+    console.error(
+      'Error al aplicar filtro:',
+      error
+    )
+  }
+}
+
+
+const agregarStickerNuevo = async (sticker: string) => {
+
+  if (!rostroRecortadoNuevo.value) {
+    return
+  }
+
+  try {
+
+    const imagenBase =
+      fotoModificadaNueva.value ||
+      rostroRecortadoNuevo.value
+
+    fotoModificadaNueva.value =
+      await agregarStickerBase(
+        sticker,
+        imagenBase
+      )
+
+  } catch (error) {
+
+    errorPassword.value =
+      'No fue posible agregar el sticker.'
+
+    console.error(
+      'Error al agregar sticker:',
+      error
+    )
+  }
+}
+
+
+const guardarNuevaFotografia = async () => {
+
+  if (
+    !fotoOriginalNueva.value ||
+    !rostroRecortadoNuevo.value
+  ) {
+    errorPassword.value =
+      'Debes tomar una fotografía antes de guardarla.'
+    return
+  }
+
+  try {
+
+    const fotoFinal =
+      fotoModificadaNueva.value ||
+      rostroRecortadoNuevo.value
+
+    const respuesta = await $fetch<{ mensaje: string }>(
+      `http://localhost:5283/api/usuarios/${usuario.value?.id}/fotos`,
+      {
+        method: 'PUT',
+
+        body: {
+          fotoOriginal: fotoOriginalNueva.value,
+          rostroRecortado: rostroRecortadoNuevo.value,
+          fotoModificada: fotoFinal
+        }
+      }
+    )
+
+    fotoModificada.value = fotoFinal
+
+    fotoOriginalNueva.value = null
+    rostroRecortadoNuevo.value = null
+    fotoModificadaNueva.value = null
+
+    filtroSeleccionado.value = 'ninguno'
+    reiniciarStickers()
+
+    mensajePassword.value = respuesta.mensaje
+
+  } catch (error: any) {
+
+    errorPassword.value =
+      error?.data?.mensaje ||
+      'No fue posible guardar la fotografía.'
+
+    console.error(
+      'Error al guardar fotografía:',
+      error
+    )
+  }
+}
+
+
+
+const obtenerFoto = async () => {
+
+  if (!usuario.value) {
+    return
+  }
+
+  try {
+
+    const respuesta = await $fetch<{
+      fotoModificada: string | null
+    }>(
+      `http://localhost:5283/api/usuarios/${usuario.value.id}/fotos`
+    )
+
+    fotoModificada.value = respuesta.fotoModificada
+
+  } catch (error) {
+
+    console.error(
+      'Error al obtener la fotografía:',
+      error
+    )
+
+  }
+}
 
 const cambiarPassword = async () => {
   mensajePassword.value = ''
@@ -124,6 +461,10 @@ const cambiarPassword = async () => {
 
 definePageMeta({
   middleware: 'auth'
+})
+
+onMounted(async () => {
+  await obtenerFoto()
 })
 
 const salir = async () => {

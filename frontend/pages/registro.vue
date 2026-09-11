@@ -192,7 +192,6 @@
 
 
 <script setup lang="ts">
-import { nextTick } from 'vue'
 
 // Contiene los datos que serán enviados al backend.
 const formulario = ref({
@@ -204,20 +203,37 @@ const formulario = ref({
   confirmarPassword: '',
   preferenciaNotificacionId: 1
 })
+//Composables
+const {
+  video,
+  stream,
+  iniciarCamara,
+  tomarFoto: capturarFoto,
+  detenerCamara
+} = useCamara()
+
+const {
+  detectarRostro
+} = useReconocimientoFacial()
+
+const {
+  filtroSeleccionado,
+  cantidadStickers,
+  aplicarFiltro: aplicarFiltroBase,
+  reiniciarStickers,
+  agregarSticker: agregarStickerBase
+} = usePersonalizacionFoto()
 
 const errores = ref<string[]>([])
 const mensajeExito = ref('')
 
-let human: any = null
 
-const video = ref<HTMLVideoElement | null>(null) //Elemento video, donde se verá la camara 
+
 const fotoOriginal = ref<string | null>(null)
 const rostroRecortado = ref<string | null>(null)//para reconocimiento facial
 const fotoModificada = ref<string | null>(null) //Foto para modificar posteriormente
-const filtroSeleccionado = ref('ninguno')
-const cantidadStickers = ref(0)
 
-const stream = ref<MediaStream | null>(null) // Conexion con la camara
+
 
 // Representa la estructura de la respuesta enviada por el endpoint de registro.
 interface RespuestaRegistro {
@@ -235,370 +251,103 @@ interface RespuestaRegistro {
   }
 }
 
+const tomarFoto = async () => {
 
-const iniciarCamara = async () => {
   cantidadStickers.value = 0
-  fotoOriginal.value = null
   fotoModificada.value = null
   rostroRecortado.value = null
-  try {
-    stream.value = await navigator.mediaDevices.getUserMedia({ //Solicita permiso al navegador
-      video: true
-    })
 
-    await nextTick()
+  const foto = capturarFoto() 
 
-    if (video.value) {
-      video.value.srcObject = stream.value
-    }
-  } catch (error) {
-    errores.value.push('No fue posible acceder a la cámara.')
-    console.error('Error al acceder a la cámara:', error)
-  }
-}
-
-const tomarFoto = async () => {
-  if (!video.value) {
+  if (!foto) {
+    errores.value.push(
+      'No fue posible capturar la fotografía.'
+    )
     return
   }
 
-  const canvas = document.createElement('canvas')
-  canvas.width = video.value.videoWidth
-  canvas.height = video.value.videoHeight
+  fotoOriginal.value = foto
 
-  const contexto = canvas.getContext('2d')
+  fotoOriginal.value = foto
 
-  if (!contexto) {
-    errores.value.push('No fue posible capturar la fotografía.')
-    return
-  }
-
-  contexto.drawImage(
-    video.value,
-    0,
-    0,
-    canvas.width,
-    canvas.height
+  const rostro = await detectarRostro(
+    fotoOriginal.value
   )
 
-  fotoOriginal.value = canvas.toDataURL('image/jpeg')
-  
-
-  if (stream.value) {
-    stream.value.getTracks().forEach(track => track.stop())  // Detiene la cámara después de tomar la fotografía.
-    stream.value = null
-  }
-
-  await detectarRostro() 
-  }
-
-const aplicarFiltroGris = () => {
-  if (!rostroRecortado.value) {
+  if (!rostro) {
+    errores.value.push(
+      'No se detectó ningún rostro en la fotografía.'
+    )
     return
   }
 
-  const imagen = new Image()
+  rostroRecortado.value = rostro
 
-  imagen.src = rostroRecortado.value
-
-  imagen.onload = () => {
-    const canvas = document.createElement('canvas')
-
-    canvas.width = imagen.width
-    canvas.height = imagen.height
-
-    const contexto = canvas.getContext('2d')
-
-    if (!contexto) {
-      errores.value.push('No fue posible aplicar el filtro.')
-      return
-    }
-
-    contexto.drawImage(imagen, 0, 0)
-
-    const datos = contexto.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    )
-
-    for (let i = 0; i < datos.data.length; i += 4) {
-      const gris =
-        datos.data[i] * 0.299 +
-        datos.data[i + 1] * 0.587 +
-        datos.data[i + 2] * 0.114
-
-      datos.data[i] = gris
-      datos.data[i + 1] = gris
-      datos.data[i + 2] = gris
-    }
-
-    contexto.putImageData(datos, 0, 0)
-
-    fotoModificada.value = canvas.toDataURL('image/jpeg')
-  }
 }
 
-const aplicarFiltroSepia = () => {
+const aplicarFiltro = async () => {
 
-  if (!rostroRecortado.value) {
-    return
-  }
-
-  const imagen = new Image()
-  imagen.src = rostroRecortado.value
-
-  imagen.onload = () => {
-
-    const canvas = document.createElement('canvas')
-    canvas.width = imagen.width
-    canvas.height = imagen.height
-
-    const contexto = canvas.getContext('2d')
-
-    if (!contexto) {
-      errores.value.push('No fue posible aplicar el filtro.')
-      return
-    }
-
-    contexto.drawImage(imagen, 0, 0)
-
-    const datos = contexto.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    )
-
-    for (let i = 0; i < datos.data.length; i += 4) {
-
-      const rojo = datos.data[i]
-      const verde = datos.data[i + 1]
-      const azul = datos.data[i + 2]
-
-      datos.data[i] =
-        Math.min(255, rojo * 0.393 + verde * 0.769 + azul * 0.189)
-
-      datos.data[i + 1] =
-        Math.min(255, rojo * 0.349 + verde * 0.686 + azul * 0.168)
-
-      datos.data[i + 2] =
-        Math.min(255, rojo * 0.272 + verde * 0.534 + azul * 0.131)
-    }
-
-    contexto.putImageData(datos, 0, 0)
-
-    fotoModificada.value = canvas.toDataURL('image/jpeg')
-  }
-}
-
-const aplicarFiltroNegativo = () => {
-
-  if (!rostroRecortado.value) {
-    return
-  }
-
-  const imagen = new Image()
-  imagen.src = rostroRecortado.value
-
-  imagen.onload = () => {
-
-    const canvas = document.createElement('canvas')
-    canvas.width = imagen.width
-    canvas.height = imagen.height
-
-    const contexto = canvas.getContext('2d')
-
-    if (!contexto) {
-      errores.value.push('No fue posible aplicar el filtro.')
-      return
-    }
-
-    contexto.drawImage(imagen, 0, 0)
-
-    const datos = contexto.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    )
-
-    for (let i = 0; i < datos.data.length; i += 4) {
-
-      datos.data[i] = 255 - datos.data[i]
-      datos.data[i + 1] = 255 - datos.data[i + 1]
-      datos.data[i + 2] = 255 - datos.data[i + 2]
-    }
-
-    contexto.putImageData(datos, 0, 0)
-
-    fotoModificada.value = canvas.toDataURL('image/jpeg')
-  }
-}
-
-const aplicarFiltro = () => {
   cantidadStickers.value = 0
+
+  if (!rostroRecortado.value) {
+    return
+  }
+
   if (filtroSeleccionado.value === 'ninguno') {
     fotoModificada.value = null
     return
   }
 
-  if (filtroSeleccionado.value === 'grises') {
-    aplicarFiltroGris()
-  }
+  try {
 
-  if (filtroSeleccionado.value === 'sepia') {
-  aplicarFiltroSepia()
-  }
+    fotoModificada.value = await aplicarFiltroBase(
+      rostroRecortado.value,
+      filtroSeleccionado.value
+    )
 
-  if (filtroSeleccionado.value === 'negativo') {
-  aplicarFiltroNegativo()
-  }
+  } catch (error) {
 
+    errores.value.push(
+      'No fue posible aplicar el filtro.'
+    )
+
+    console.error(
+      'Error al aplicar filtro:',
+      error
+    )
+  }
 }
 
-
-const agregarSticker = (sticker: string) => {
-
-  if (cantidadStickers.value >= 10) {
-    return
-  }
+const agregarSticker = async (sticker: string) => {
 
   if (!rostroRecortado.value) {
     return
   }
 
-    cantidadStickers.value++
-
-  const imagen = new Image()
-  imagen.src = fotoModificada.value || rostroRecortado.value
-
-  imagen.onload = () => {
-
-    const canvas = document.createElement('canvas')
-    canvas.width = imagen.width
-    canvas.height = imagen.height
-
-    const contexto = canvas.getContext('2d')
-
-    if (!contexto) {
-      errores.value.push('No fue posible agregar el sticker.')
-      return
-    }
-
-    contexto.drawImage(imagen, 0, 0)
-
-    const tamaño = 50
-
-    const x = Math.random() * (canvas.width - tamaño)
-    const y = Math.random() * (canvas.height - tamaño)
-
-    contexto.font = `${tamaño}px Arial`
-    contexto.fillText(sticker, x, y)
-
-    fotoModificada.value = canvas.toDataURL('image/jpeg')
-  }
-}
-
-
-const detectarRostro = async () => {
-  if (!fotoOriginal.value) {
-    return
-  }
-
   try {
 
-    if (!human) {
-      const modulo = await import('@vladmandic/human')
+    const imagenBase =
+      fotoModificada.value ||
+      rostroRecortado.value
 
-      human = new modulo.default({
-        modelBasePath: '/models/',
-        backend: 'webgl',
-        face: {
-          enabled: true
-        },
-        body: {
-          enabled: false
-        },
-        hand: {
-          enabled: false
-        },
-        object: {
-          enabled: false
-        }
-      })
-    }
-
-    const imagen = new Image()
-
-    imagen.src = fotoOriginal.value
-
-    await new Promise<void>((resolve, reject) => {
-      imagen.onload = () => resolve()
-      imagen.onerror = () => reject()
-    })
-
-    const resultado = await human.detect(imagen)
-
-    console.log('Resultado de detección facial:', resultado)
-
-    if (resultado.face.length === 0) {
-      errores.value.push('No se detectó ningún rostro en la fotografía.')
-      return
-    }
-
-    console.log('Rostros detectados:', resultado.face.length)
-    console.log('Datos del rostro:', resultado.face[0])
-
-    const rostro = resultado.face[0]
-    const [x, y, ancho, alto] = rostro.box
-
-    const canvasRostro = document.createElement('canvas')
-
-    canvasRostro.width = ancho
-    canvasRostro.height = alto
-
-    const contextoRostro = canvasRostro.getContext('2d')
-
-    if (!contextoRostro) {
-      errores.value.push('No fue posible recortar el rostro.')
-      return
-    }
-
-    contextoRostro.drawImage(
-      imagen,
-      x,
-      y,
-      ancho,
-      alto,
-      0,
-      0,
-      ancho,
-      alto
-    )
-
-    rostroRecortado.value = canvasRostro.toDataURL('image/jpeg')
-
-
+    fotoModificada.value =
+      await agregarStickerBase(
+        sticker,
+        imagenBase
+      )
 
   } catch (error) {
-    errores.value.push('Ocurrió un error al detectar el rostro.')
-    console.error('Error en detección facial:', error)
+
+    errores.value.push(
+      'No fue posible agregar el sticker.'
+    )
+
+    console.error(
+      'Error al agregar sticker:',
+      error
+    )
   }
 }
-
-const detenerCamara = () => {
-  if (stream.value) {
-    stream.value.getTracks().forEach(track => track.stop())
-    stream.value = null
-  }
-}
-
-onBeforeUnmount(() => {
-  detenerCamara()
-})
-
 
 
 // Valida los datos del formulario y registra // al usuario mediante el API.

@@ -344,6 +344,85 @@ app.MapPost("/api/usuarios", async (
     });
 });
 
+// ==========================================================
+// ENDPOINT: Recuperar Imagenes
+// ==========================================================
+
+app.MapGet("/api/usuarios/{id}/fotos", async (
+    int id,
+    ApplicationDbContext db) =>
+{
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Id == id);
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+    var datosBiometricos = await db.DatosBiometricos
+        .FirstOrDefaultAsync(d => d.UsuarioId == id);
+
+    return Results.Ok(new
+    {
+        fotoOriginal = usuario.FotoOriginal,
+        rostroRecortado = datosBiometricos?.RostroRecortado,
+        fotoModificada = usuario.FotoModificada
+    });
+});
+
+// ==========================================================
+// ENDPOINT: Actualizar imagenes
+// ==========================================================
+
+app.MapPut("/api/usuarios/{id}/fotos", async (
+    int id,
+    ActualizarFotosDto datos,
+    ApplicationDbContext db) =>
+{
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Id == id);
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+    usuario.FotoOriginal = datos.FotoOriginal;
+    usuario.FotoModificada = datos.FotoModificada;
+
+    var datosBiometricos = await db.DatosBiometricos
+        .FirstOrDefaultAsync(d => d.UsuarioId == id);
+
+    if (datosBiometricos == null)
+    {
+        datosBiometricos = new DatosBiometricos
+        {
+            UsuarioId = id,
+            RostroRecortado = datos.RostroRecortado
+        };
+
+        db.DatosBiometricos.Add(datosBiometricos);
+    }
+    else
+    {
+        datosBiometricos.RostroRecortado = datos.RostroRecortado;
+    }
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        mensaje = "Fotografías actualizadas correctamente."
+    });
+});
+
 
 // ==========================================================
 // ENDPOINT: LOGIN
