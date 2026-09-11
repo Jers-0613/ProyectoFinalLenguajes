@@ -15,8 +15,7 @@ using System.Text;
 using System.Security.Cryptography;
 
 //Genera una contraseña aleatoria de 10 caracteres.
-string GenerarPasswordTemporal()
-{
+string GenerarPasswordTemporal(){
     const string caracteres =
         "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
 
@@ -53,15 +52,17 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 );
 
 
+
+
 // ==========================================================
 // SERVICIOS
 // ==========================================================
 
-// Permite utilizar PasswordService mediante inyección de dependencias.
+// Permite utilizar PasswordService y CredencialService mediante inyección de dependencias.
 // Este servicio se encarga de generar y comprobar los hashes
-// de las contraseñas.
+// de las contraseñas y ahora generar las credenciales PDF 
 builder.Services.AddScoped<PasswordService>();
-
+builder.Services.AddScoped<CredencialService>();
 
 // ==========================================================
 // AUTENTICACIÓN JWT
@@ -70,9 +71,9 @@ builder.Services.AddScoped<PasswordService>();
 // Configura JWT como mecanismo de autenticación de la API.
 builder.Services.AddAuthentication(
     JwtBearerDefaults.AuthenticationScheme
-)
-.AddJwtBearer(options =>
-{
+    )
+    .AddJwtBearer(options =>
+    {
     options.TokenValidationParameters = new TokenValidationParameters
     {
         // Comprueba que el token haya sido generado
@@ -116,7 +117,7 @@ builder.Services.AddAuthorization();
 // Permite que el frontend Nuxt, ejecutándose en localhost:3000,
 // pueda realizar solicitudes al backend.
 builder.Services.AddCors(options =>
-{
+    {
     options.AddPolicy("NuxtPolicy", policy =>
     {
         policy
@@ -172,6 +173,22 @@ if (app.Environment.IsDevelopment())
 // app.UseHttpsRedirection();
 
 
+app.MapGet("/api/prueba-credencial", () =>
+    {
+    var servicio = new CredencialService();
+
+    var ruta = @"C:\Users\Jermaih\ProyectoFinalLenguajes\credencial-prueba.pdf";
+
+    servicio.GuardarCredencialPrueba(ruta);
+
+    return Results.Ok(new
+    {
+        mensaje = "Credencial generada correctamente.",
+        ruta
+    });
+});
+
+
 // ==========================================================
 // ENDPOINT: REGISTRO DE USUARIOS
 // ==========================================================
@@ -180,7 +197,7 @@ app.MapPost("/api/usuarios", async (
     RegistroUsuarioDto datos,
     ApplicationDbContext db,
     PasswordService passwordService) =>
-{
+    {
     // Comprueba que ambas contraseñas coincidan.
     if (datos.Password != datos.ConfirmarPassword)
     {
@@ -351,7 +368,7 @@ app.MapPost("/api/usuarios", async (
 app.MapGet("/api/usuarios/{id}/fotos", async (
     int id,
     ApplicationDbContext db) =>
-{
+    {
     var usuario = await db.Usuarios
         .FirstOrDefaultAsync(u => u.Id == id);
 
@@ -382,7 +399,7 @@ app.MapPut("/api/usuarios/{id}/fotos", async (
     int id,
     ActualizarFotosDto datos,
     ApplicationDbContext db) =>
-{
+    {
     var usuario = await db.Usuarios
         .FirstOrDefaultAsync(u => u.Id == id);
 
@@ -423,6 +440,55 @@ app.MapPut("/api/usuarios/{id}/fotos", async (
     });
 });
 
+// ==========================================================
+// ENDPOINT: Datos para la credencial
+// ==========================================================
+
+app.MapGet("/api/usuarios/{id}/credencial", async (
+    int id,
+    ApplicationDbContext db,
+    CredencialService credencialService) =>
+    {
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Id == id);
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+    var rol = await db.Roles
+        .FirstOrDefaultAsync(r => r.Id == usuario.RolId);
+
+    if (rol == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Rol del usuario no encontrado."
+        });
+    }
+
+    var datos = new CredencialDto
+    {
+        Id = usuario.Id,
+        Nickname = usuario.Nickname,
+        Correo = usuario.Correo,
+        Telefono = usuario.Telefono,
+        Rol = rol.Nombre,
+        Foto = usuario.FotoModificada
+    };
+
+    var pdf = credencialService.GenerarCredencial(datos);
+
+    return Results.File(
+        pdf,
+        "application/pdf",
+        $"credencial-{usuario.Nickname}.pdf"
+    );
+});
 
 // ==========================================================
 // ENDPOINT: LOGIN
