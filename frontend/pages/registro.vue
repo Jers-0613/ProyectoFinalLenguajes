@@ -254,8 +254,6 @@ interface RespuestaRegistro {
 const tomarFoto = async () => {
 
   cantidadStickers.value = 0
-  fotoModificada.value = null
-  rostroRecortado.value = null
 
   const foto = capturarFoto() 
 
@@ -268,7 +266,6 @@ const tomarFoto = async () => {
 
   fotoOriginal.value = foto
 
-  fotoOriginal.value = foto
 
   const rostro = await detectarRostro(
     fotoOriginal.value
