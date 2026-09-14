@@ -3,16 +3,103 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
 
+using backend.Data;
+using backend.Dtos;
+
+using Microsoft.EntityFrameworkCore;
+
 namespace backend.Services;
 
 public class NotificacionService
 {
     private readonly IConfiguration configuration;
+    private readonly ApplicationDbContext db;
 
-    public NotificacionService(IConfiguration configuration)
+    public NotificacionService(IConfiguration configuration,ApplicationDbContext db)
     {
         this.configuration = configuration;
+        this.db = db;
     }
+
+    public async Task EnviarNotificacionAsync(
+        NotificacionDto notificacion)
+    {
+        var usuario = await db.Usuarios
+            .FirstOrDefaultAsync(u =>
+                u.Id == notificacion.UsuarioId);
+
+        if (usuario == null)
+        {
+            throw new Exception(
+                "No se encontró el usuario para enviar la notificación."
+            );
+        }
+
+        var preferencia = await db.PreferenciasNotificacion
+            .FirstOrDefaultAsync(p =>
+                p.Id == usuario.PreferenciaNotificacionId);
+
+        if (preferencia == null)
+        {
+            throw new Exception(
+                "No se encontró la preferencia de notificación del usuario."
+            );
+        }
+
+        if (preferencia.Id == 1)
+        {
+            if (notificacion.Archivo == null)
+            {
+                await EnviarCorreoAsync(
+                    usuario.Correo,
+                    notificacion.Asunto,
+                    notificacion.Mensaje
+                );
+            }
+            else
+            {
+                await EnviarCorreoConAdjuntoAsync(
+                    usuario.Correo,
+                    notificacion.Asunto,
+                    notificacion.Mensaje,
+                    notificacion.Archivo,
+                    notificacion.NombreArchivo!
+                );
+            }
+        }
+
+        if (preferencia.Id == 2)
+        {
+            // WhatsApp se implementará posteriormente.
+        }
+
+        if (preferencia.Id == 3)
+        {
+            if (notificacion.Archivo == null)
+            {
+                await EnviarCorreoAsync(
+                    usuario.Correo,
+                    notificacion.Asunto,
+                    notificacion.Mensaje
+                );
+            }
+            else
+            {
+                await EnviarCorreoConAdjuntoAsync(
+                    usuario.Correo,
+                    notificacion.Asunto,
+                    notificacion.Mensaje,
+                    notificacion.Archivo,
+                    notificacion.NombreArchivo!
+                );
+            }
+
+            // WhatsApp se implementará posteriormente.
+        }
+    }
+
+
+
 
     public async Task EnviarCorreoAsync(
         string destinatario,

@@ -26,39 +26,62 @@
         Iniciar sesión
       </button>
 
+      <button
+        type="button"
+        @click="mostrarLoginQr = true"
+        >
+        Iniciar sesión con QR
+      </button>
+
       <NuxtLink to="/recuperar-password">
         ¿Olvidaste tu contraseña?
       </NuxtLink>
+      <br>
+      <br>
+      <NuxtLink to="/registro">
+        ¿No tienes una Cuenta? ¡Registrate!
+      </NuxtLink>
 
-      <!-- Botón utilizado durante el desarrollo para comprobar que el token permite acceder a un endpoint protegido. Se eliminará cuando terminemos las pruebas de autenticación. -->
-      <button
-        type="button"
-        @click="probarEndpointProtegido"
-      >
-        Probar acceso protegido
-      </button>
+      <div v-if="mostrarLoginQr">
 
-      <!-- Botón temporal de desarrollo. El cierre de sesión definitivo se realiza desde el perfil. -->
-      <button
-        type="button"
-        @click="cerrarSesion"
-      >
-        Cerrar sesión
-      </button>
+        <h2>Iniciar sesión con QR</h2>
+
+        <video
+          ref="video"
+          autoplay
+          playsinline
+          muted
+        ></video>
+
+        <br>
+        <br>
+
+        <button
+          type="button"
+          @click="mostrarLoginQr = false"
+        >
+          Volver al inicio de sesión
+        </button>
+
+      </div>
+
+      
+
+
 
       <div v-if="errores.length > 0">
-  <p></p>
+        <p></p>
 
-  <ul>
-    <li v-for="error in errores" :key="error">
-      {{ error }}
-    </li>
-  </ul>
-</div>
+        <ul>
+          <li v-for="error in errores" :key="error">
+            {{ error }}
+          </li>
+        </ul>
+      </div>
 
-<p v-if="mensajeExito">
-  {{ mensajeExito }}
-</p>
+      <p v-if="mensajeExito">
+        {{ mensajeExito }}
+      </p>
     </form>
   </div>
 </template>
@@ -67,8 +90,10 @@
 
 <script setup lang="ts">
 
-import { ref } from 'vue'
+import { ref, watch, onBeforeUnmount  } from 'vue'
 import { useAuth } from '~/composables/useAuth'
+import { useCamara } from '~/composables/useCamara'
+import { useQrScanner } from '~/composables/useQrScanner'
 
 //Datos que el user ingresa en el formulario
 const formulario = ref({
@@ -79,6 +104,8 @@ const formulario = ref({
 //Arreglo de errores y mensaje mostrado despues de una operacion exitosa
 const errores = ref<string[]>([])
 const mensajeExito = ref('')
+const mostrarLoginQr = ref(false)
+let intervaloQr: ReturnType<typeof setInterval> | null = null
 
 // Representa la información del usuario que devuelve el backend.
 interface Usuario {
@@ -102,6 +129,75 @@ interface RespuestaLogin {
 }
 
 const { guardarSesion, cerrarSesion: cerrarSesionAuth } = useAuth()
+const {
+  video,
+  iniciarCamara,
+  detenerCamara
+} = useCamara()
+
+const {
+  escanearQr
+} = useQrScanner()
+
+watch(mostrarLoginQr, async (mostrar) => {
+
+  if (mostrar) {
+
+    try {
+
+      await iniciarCamara()
+
+      intervaloQr = setInterval(async () => {
+
+        if (!video.value) {
+          return
+        }
+
+        const codigo = escanearQr(video.value)
+
+        if (codigo) {
+
+          console.log(
+            'Código QR detectado:',
+            codigo
+          )
+
+          if (intervaloQr) {
+            clearInterval(intervaloQr)
+            intervaloQr = null
+          }
+
+          detenerCamara()
+
+          await iniciarSesionQr(codigo)
+        }
+
+      }, 300)
+
+    } catch (error) {
+
+      errores.value.push(
+        'No fue posible acceder a la cámara.'
+      )
+
+      mostrarLoginQr.value = false
+
+    }
+
+  } else {
+
+    if (intervaloQr) {
+
+      clearInterval(intervaloQr)
+      intervaloQr = null
+
+    }
+
+    detenerCamara()
+
+  }
+
+})
 
 const iniciarSesion = async () => {
   errores.value = []
@@ -155,21 +251,50 @@ const iniciarSesion = async () => {
   }
 }
 
-// Prueba temporal para comprobar el acceso a un endpoint protegido utilizando el JWT almacenado en localStorage.
-const probarEndpointProtegido = async () => {
+const iniciarSesionQr = async (codigoCredencial: string) => {
+
+  errores.value = []
+  mensajeExito.value = ''
+
   try {
-    const token = localStorage.getItem('token')
 
-    const respuesta = await $fetch('http://localhost:5283/api/protegido', {
-      headers: {
-        Authorization: `Bearer ${token}`
+    const respuesta = await $fetch<RespuestaLogin>(
+      'http://localhost:5283/api/login/qr',
+      {
+        method: 'POST',
+        body: {
+          codigoCredencial
+        }
       }
-    })
+    )
 
-    console.log('Respuesta del endpoint protegido:', respuesta)
+    mensajeExito.value = respuesta.mensaje
+
+    guardarSesion(
+      respuesta.usuario,
+      respuesta.token
+    )
+
+    console.log(
+      'Respuesta del login mediante QR:',
+      respuesta
+    )
+
+    await navigateTo('/perfil')
 
   } catch (error: any) {
-    console.error('Error al acceder al endpoint protegido:', error)
+
+    errores.value.push(
+      error?.data?.mensaje ||
+      'No fue posible iniciar sesión mediante QR.'
+    )
+
+    console.error(
+      'Error al iniciar sesión mediante QR:',
+      error
+    )
+
+    mostrarLoginQr.value = false
   }
 }
 
@@ -177,5 +302,18 @@ const cerrarSesion = () => {
   cerrarSesionAuth()
   mensajeExito.value = 'Sesión cerrada correctamente.'
 }
+
+onBeforeUnmount(() => {
+
+  if (intervaloQr) {
+
+    clearInterval(intervaloQr)
+    intervaloQr = null
+
+  }
+
+  detenerCamara()
+
+})
 
 </script>

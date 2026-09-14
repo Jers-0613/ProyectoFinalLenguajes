@@ -12,16 +12,13 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
-// ==========================================================
+
 // CONFIGURACIÓN INICIAL
-// ==========================================================
 
 var builder = WebApplication.CreateBuilder(args);
 
 
-// ==========================================================
 // BASE DE DATOS
-// ==========================================================
 
 // Registra Entity Framework Core y configura la conexión
 // con SQL Server utilizando la cadena definida en configuración.
@@ -32,16 +29,10 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 );
 
 
-
-
-// ==========================================================
 // SERVICIOS
-// ==========================================================
 
-// Permite utilizar PasswordService y CredencialService mediante inyección de dependencias.
-// Este servicio se encarga de generar y comprobar los hashes
-// de las contraseñas y ahora generar las credenciales PDF junto a su qr
-//Se agrega servicio para envio de informacion mediante notificaciones
+
+// Permite utilizarlos  mediante inyección de dependencias.
 builder.Services.AddScoped<PasswordService>();
 builder.Services.AddScoped<CredencialService>();
 builder.Services.AddScoped<QrService>();
@@ -299,12 +290,15 @@ app.MapPost("/api/usuarios", async (
     var credencialPdf = credencialService.GenerarCredencial(datosCredencial);
 
     
-    await notificacionService.EnviarCorreoConAdjuntoAsync(
-        usuario.Correo,
-        "Tu credencial - Analizador Léxico",
-        MensajesCorreo.CredencialRegistro(usuario.Nickname),
-        credencialPdf,
-        $"credencial-{usuario.Nickname}.pdf"
+    await notificacionService.EnviarNotificacionAsync(
+        new NotificacionDto
+        {
+            UsuarioId = usuario.Id,
+            Asunto = "Tu credencial - Analizador Léxico",
+            Mensaje = MensajesCorreo.CredencialRegistro(usuario.Nickname),
+            Archivo = credencialPdf,
+            NombreArchivo =$"credencial-{usuario.Nickname}.pdf"
+        }
     );
 
 
@@ -330,136 +324,6 @@ app.MapPost("/api/usuarios", async (
             usuario.FechaRegistro
         }
     });
-});
-
-// ==========================================================
-// ENDPOINT: Recuperar Imagenes
-// ==========================================================
-
-app.MapGet("/api/usuarios/{id}/fotos", async (
-    int id,
-    ApplicationDbContext db) =>
-    {
-    var usuario = await db.Usuarios
-        .FirstOrDefaultAsync(u => u.Id == id);
-
-    if (usuario == null)
-    {
-        return Results.NotFound(new
-        {
-            mensaje = "Usuario no encontrado."
-        });
-    }
-
-    var datosBiometricos = await db.DatosBiometricos
-        .FirstOrDefaultAsync(d => d.UsuarioId == id);
-
-    return Results.Ok(new
-    {
-        fotoOriginal = usuario.FotoOriginal,
-        rostroRecortado = datosBiometricos?.RostroRecortado,
-        fotoModificada = usuario.FotoModificada
-    });
-});
-
-// ==========================================================
-// ENDPOINT: Actualizar imagenes
-// ==========================================================
-
-app.MapPut("/api/usuarios/{id}/fotos", async (
-    int id,
-    ActualizarFotosDto datos,
-    ApplicationDbContext db) =>
-    {
-    var usuario = await db.Usuarios
-        .FirstOrDefaultAsync(u => u.Id == id);
-
-    if (usuario == null)
-    {
-        return Results.NotFound(new
-        {
-            mensaje = "Usuario no encontrado."
-        });
-    }
-
-    usuario.FotoOriginal = datos.FotoOriginal;
-    usuario.FotoModificada = datos.FotoModificada;
-
-    var datosBiometricos = await db.DatosBiometricos
-        .FirstOrDefaultAsync(d => d.UsuarioId == id);
-
-    if (datosBiometricos == null)
-    {
-        datosBiometricos = new DatosBiometricos
-        {
-            UsuarioId = id,
-            RostroRecortado = datos.RostroRecortado
-        };
-
-        db.DatosBiometricos.Add(datosBiometricos);
-    }
-    else
-    {
-        datosBiometricos.RostroRecortado = datos.RostroRecortado;
-    }
-
-    await db.SaveChangesAsync();
-
-    return Results.Ok(new
-    {
-        mensaje = "Fotografías actualizadas correctamente."
-    });
-});
-
-// ==========================================================
-// ENDPOINT: Datos para la credencial
-// ==========================================================
-
-app.MapGet("/api/usuarios/{id}/credencial", async (
-    int id,
-    ApplicationDbContext db,
-    CredencialService credencialService) =>
-    {
-    var usuario = await db.Usuarios
-        .FirstOrDefaultAsync(u => u.Id == id);
-
-    if (usuario == null)
-    {
-        return Results.NotFound(new
-        {
-            mensaje = "Usuario no encontrado."
-        });
-    }
-
-    var rol = await db.Roles
-        .FirstOrDefaultAsync(r => r.Id == usuario.RolId);
-
-    if (rol == null)
-    {
-        return Results.NotFound(new
-        {
-            mensaje = "Rol del usuario no encontrado."
-        });
-    }
-
-    var datos = new CredencialDto
-    {
-        Id = usuario.Id,
-        CodigoCredencial = usuario.CodigoCredencial!.Value,
-        Nickname = usuario.Nickname,
-        Correo = usuario.Correo,
-        Telefono = usuario.Telefono,
-        Rol = rol.Nombre,
-        Foto = usuario.FotoModificada
-    };
-
-    var pdf = credencialService.GenerarCredencial(datos);
-
-    return Results.File(
-        pdf,
-        "application/pdf",
-        $"credencial-{usuario.Nickname}.pdf"
-    );
 });
 
 // ==========================================================
@@ -613,6 +477,284 @@ app.MapPost("/api/login", async (
     });
 });
 
+
+// ==========================================================
+// ENDPOINT: LOGIN MEDIANTE QR
+// ==========================================================
+
+app.MapPost("/api/login/qr", async (
+    LoginQrDto datos,
+    ApplicationDbContext db,
+    HttpContext httpContext) =>
+    {
+    // Busca al usuario utilizando el código único
+    // almacenado dentro de su credencial QR.
+    if (!Guid.TryParse(datos.CodigoCredencial, out var codigoCredencial))
+    {
+        return Results.BadRequest(new
+        {
+            mensaje = "El código QR no es válido."
+        });
+    }
+
+
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u =>
+            u.CodigoCredencial == codigoCredencial);
+
+
+    // No se permite iniciar sesión si el código
+    // no pertenece a ningún usuario.
+    if (usuario == null)
+    {
+        return Results.BadRequest(new
+        {
+            mensaje = "La credencial no es válida."
+        });
+    }
+
+
+    // Un usuario inactivo tampoco puede iniciar sesión.
+    if (!usuario.Activo)
+    {
+        return Results.BadRequest(new
+        {
+            mensaje = "El usuario está inactivo."
+        });
+    }
+
+
+    // Obtiene la dirección IP desde la que se realizó
+    // el inicio de sesión para registrarla en la bitácora.
+    var ip =
+        httpContext.Connection.RemoteIpAddress?.ToString()
+        ?? "IP desconocida";
+
+
+    // Registra el inicio de sesión mediante QR.
+    var bitacora = new BitacoraLogin
+    {
+        UsuarioId = usuario.Id,
+        FechaHora = DateTime.Now,
+        Ip = ip
+    };
+
+
+    db.BitacoraLogin.Add(bitacora);
+
+    await db.SaveChangesAsync();
+
+
+    // Utiliza los mismos datos del usuario que
+    // utiliza el login tradicional para generar el JWT.
+    var claims = new[]
+    {
+        new Claim(
+            ClaimTypes.NameIdentifier,
+            usuario.Id.ToString()
+        ),
+
+        new Claim(
+            ClaimTypes.Email,
+            usuario.Correo
+        ),
+
+        new Claim(
+            ClaimTypes.Name,
+            usuario.Nickname
+        ),
+
+        new Claim(
+            ClaimTypes.Role,
+            usuario.RolId.ToString()
+        )
+    };
+
+
+    var key = new SymmetricSecurityKey(
+        Encoding.UTF8.GetBytes(
+            builder.Configuration["Jwt:Clave"]!
+        )
+    );
+
+
+    var credentials = new SigningCredentials(
+        key,
+        SecurityAlgorithms.HmacSha256
+    );
+
+
+    // Genera el mismo tipo de JWT utilizado
+    // por el login mediante correo y contraseña.
+    var token = new JwtSecurityToken(
+        issuer: builder.Configuration["Jwt:Issuer"],
+        audience: builder.Configuration["Jwt:Audience"],
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(2),
+        signingCredentials: credentials
+    );
+
+
+    var tokenString =
+        new JwtSecurityTokenHandler().WriteToken(token);
+
+
+    // Devuelve el token y la información necesaria
+    // para establecer la sesión en el frontend.
+    return Results.Ok(new
+    {
+        mensaje = "Inicio de sesión mediante QR correcto.",
+
+        token = tokenString,
+
+        usuario = new
+        {
+            id = usuario.Id,
+            correo = usuario.Correo,
+            telefono = usuario.Telefono,
+            fechaNacimiento = usuario.FechaNacimiento,
+            nickname = usuario.Nickname,
+            preferenciaNotificacionId = usuario.PreferenciaNotificacionId,
+            rolId = usuario.RolId,
+            activo = usuario.Activo,
+            fechaRegistro = usuario.FechaRegistro,
+            debeCambiarPassword = usuario.DebeCambiarPassword
+        }
+    });
+});
+
+// ==========================================================
+// ENDPOINT: Recuperar Imagenes
+// ==========================================================
+
+app.MapGet("/api/usuarios/{id}/fotos", async (
+    int id,
+    ApplicationDbContext db) =>
+    {
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Id == id);
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+    var datosBiometricos = await db.DatosBiometricos
+        .FirstOrDefaultAsync(d => d.UsuarioId == id);
+
+    return Results.Ok(new
+    {
+        fotoOriginal = usuario.FotoOriginal,
+        rostroRecortado = datosBiometricos?.RostroRecortado,
+        fotoModificada = usuario.FotoModificada
+    });
+});
+
+// ==========================================================
+// ENDPOINT: Actualizar imagenes
+// ==========================================================
+
+app.MapPut("/api/usuarios/{id}/fotos", async (
+    int id,
+    ActualizarFotosDto datos,
+    ApplicationDbContext db) =>
+    {
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Id == id);
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+    usuario.FotoOriginal = datos.FotoOriginal;
+    usuario.FotoModificada = datos.FotoModificada;
+
+    var datosBiometricos = await db.DatosBiometricos
+        .FirstOrDefaultAsync(d => d.UsuarioId == id);
+
+    if (datosBiometricos == null)
+    {
+        datosBiometricos = new DatosBiometricos
+        {
+            UsuarioId = id,
+            RostroRecortado = datos.RostroRecortado
+        };
+
+        db.DatosBiometricos.Add(datosBiometricos);
+    }
+    else
+    {
+        datosBiometricos.RostroRecortado = datos.RostroRecortado;
+    }
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        mensaje = "Fotografías actualizadas correctamente."
+    });
+});
+
+// ==========================================================
+// ENDPOINT: Datos para la credencial
+// ==========================================================
+
+app.MapGet("/api/usuarios/{id}/credencial", async (
+    int id,
+    ApplicationDbContext db,
+    CredencialService credencialService) =>
+    {
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u => u.Id == id);
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+    var rol = await db.Roles
+        .FirstOrDefaultAsync(r => r.Id == usuario.RolId);
+
+    if (rol == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Rol del usuario no encontrado."
+        });
+    }
+
+    var datos = new CredencialDto
+    {
+        Id = usuario.Id,
+        CodigoCredencial = usuario.CodigoCredencial!.Value,
+        Nickname = usuario.Nickname,
+        Correo = usuario.Correo,
+        Telefono = usuario.Telefono,
+        Rol = rol.Nombre,
+        Foto = usuario.FotoModificada
+    };
+
+    var pdf = credencialService.GenerarCredencial(datos);
+
+    return Results.File(
+        pdf,
+        "application/pdf",
+        $"credencial-{usuario.Nickname}.pdf"
+    );
+});
+
+
+
 // ==========================================================
 // ENDPOINT: RECUPERAR CONTRASEÑA OLVIDADADA
 // ==========================================================
@@ -643,13 +785,13 @@ app.MapPost("/api/recuperar-password", async (
     await db.SaveChangesAsync();
 
     
-   await notificacionService.EnviarCorreoAsync(
-    usuario.Correo,
-    "Recuperación de contraseña - Analizador Léxico",
-    MensajesCorreo.RecuperacionPassword(
-        usuario.Nickname,
-        passwordTemporal
-            )
+    await notificacionService.EnviarNotificacionAsync(
+        new NotificacionDto
+        {
+            UsuarioId = usuario.Id,
+            Asunto = "Recuperación de contraseña - Analizador Léxico",
+            Mensaje = MensajesCorreo.RecuperacionPassword( usuario.Nickname,passwordTemporal )
+        }
     );
 
 
@@ -658,60 +800,6 @@ app.MapPost("/api/recuperar-password", async (
         mensaje = "Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña."
     });
 });
-
-
-// ==========================================================
-// ENDPOINT: USUARIO AUTENTICADO
-// ==========================================================
-
-// Devuelve la información del usuario correspondiente
-// al JWT utilizado en la solicitud.
-app.MapGet("/api/usuario", async (
-    HttpContext httpContext,
-    ApplicationDbContext db) =>
-    {
-    var usuarioId =
-        httpContext.User
-            .FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-
-    if (usuarioId == null)
-    {
-        return Results.Unauthorized();
-    }
-
-
-    // Busca en la base de datos la información actual
-    // del usuario autenticado.
-    var usuario = await db.Usuarios
-        .FirstOrDefaultAsync(u =>
-            u.Id == int.Parse(usuarioId));
-
-
-    if (usuario == null)
-    {
-        return Results.NotFound(new
-        {
-            mensaje = "Usuario no encontrado."
-        });
-    }
-
-
-    // No se devuelve información sensible como PasswordHash.
-    return Results.Ok(new
-    {
-        id = usuario.Id,
-        correo = usuario.Correo,
-        telefono = usuario.Telefono,
-        fechaNacimiento = usuario.FechaNacimiento,
-        nickname = usuario.Nickname,
-        preferenciaNotificacionId = usuario.PreferenciaNotificacionId,
-        rolId = usuario.RolId,
-        activo = usuario.Activo,
-        fechaRegistro = usuario.FechaRegistro
-    });
-
-}).RequireAuthorization();
 
 
 // ==========================================================
@@ -777,6 +865,60 @@ app.MapPut("/api/usuario/password", async (
     });
 }).RequireAuthorization();
 
+
+// ==========================================================
+// ENDPOINT: USUARIO AUTENTICADO
+// ==========================================================
+
+// Devuelve la información del usuario correspondiente
+// al JWT utilizado en la solicitud.
+app.MapGet("/api/usuario", async (
+    HttpContext httpContext,
+    ApplicationDbContext db) =>
+    {
+    var usuarioId =
+        httpContext.User
+            .FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+
+    if (usuarioId == null)
+    {
+        return Results.Unauthorized();
+    }
+
+
+    // Busca en la base de datos la información actual
+    // del usuario autenticado.
+    var usuario = await db.Usuarios
+        .FirstOrDefaultAsync(u =>
+            u.Id == int.Parse(usuarioId));
+
+
+    if (usuario == null)
+    {
+        return Results.NotFound(new
+        {
+            mensaje = "Usuario no encontrado."
+        });
+    }
+
+
+    // No se devuelve información sensible como PasswordHash.
+    return Results.Ok(new
+    {
+        id = usuario.Id,
+        correo = usuario.Correo,
+        telefono = usuario.Telefono,
+        fechaNacimiento = usuario.FechaNacimiento,
+        nickname = usuario.Nickname,
+        preferenciaNotificacionId = usuario.PreferenciaNotificacionId,
+        rolId = usuario.RolId,
+        activo = usuario.Activo,
+        fechaRegistro = usuario.FechaRegistro
+    });
+
+}).RequireAuthorization();
+
 // ==========================================================
 // ENDPOINT: ROLES
 // ==========================================================
@@ -786,7 +928,7 @@ app.MapPut("/api/usuario/password", async (
 // Roles está correctamente conectada con el backend.
 app.MapGet("/api/roles", async (
     ApplicationDbContext db) =>
-{
+    {
     var roles =
         await db.Roles.ToListAsync();
 

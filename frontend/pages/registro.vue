@@ -3,7 +3,11 @@
 <template>
   <div>
     <h1>Crear una cuenta</h1>
-
+    <NuxtLink to="/login">
+        ¿Ya tienes una Cuenta?
+      </NuxtLink>
+      <br>
+      <br>
     <form @submit.prevent="registrarUsuario">
 
       <div>
