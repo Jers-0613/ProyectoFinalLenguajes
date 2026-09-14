@@ -199,9 +199,4 @@ public class ApplicationDbContext : DbContext
 
     }
 
-    // Comprueba si el backend puede establecer conexión
-    public async Task<bool> ProbarConexionAsync()
-    {
-        return await Database.CanConnectAsync();
-    }
 }

@@ -6,6 +6,8 @@ public class Usuario
 {
     public int Id { get; set; }
 
+    public Guid? CodigoCredencial { get; set; }
+
     public string Correo { get; set; } = string.Empty;
 
     public string Telefono { get; set; } = string.Empty;

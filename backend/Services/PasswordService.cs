@@ -1,10 +1,5 @@
-//mecanismo de hashing de ASP.NET Core basado en PasswordHasher<T>
-//contraseña original - hasher - contraseña hasheada - sql
-// iniciar sesion - hasher.verify - coincide? si/no
-
-
 using Microsoft.AspNetCore.Identity;
-
+using System.Security.Cryptography;
 namespace backend.Services;
 
 // Servicio encargado de proteger las contraseñas de los usuarios.
@@ -34,5 +29,31 @@ public class PasswordService
 
         return resultado == PasswordVerificationResult.Success ||
                resultado == PasswordVerificationResult.SuccessRehashNeeded;
+    }
+
+    public bool EsPasswordValida(string password)
+    {
+        return password.Length >= 8 &&
+            System.Text.RegularExpressions.Regex.IsMatch(
+                password,
+                @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"
+            );
+    }
+
+    public string GenerarPasswordTemporal()
+    {
+        const string caracteres =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+
+        var resultado = new char[10];
+
+        for (int i = 0; i < resultado.Length; i++)
+        {
+            resultado[i] = caracteres[
+                RandomNumberGenerator.GetInt32(caracteres.Length)
+            ];
+        }
+
+        return new string(resultado);
     }
 }

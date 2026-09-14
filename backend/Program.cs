@@ -1,8 +1,8 @@
-
 using backend.Data;
 using backend.Dtos;
 using backend.Models;
 using backend.Services;
+using backend.Messages; 
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -11,26 +11,6 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-
-using System.Security.Cryptography;
-
-//Genera una contraseña aleatoria de 10 caracteres.
-string GenerarPasswordTemporal(){
-    const string caracteres =
-        "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-
-    var resultado = new char[10];
-
-    for (int i = 0; i < resultado.Length; i++)
-    {
-        resultado[i] = caracteres[
-            RandomNumberGenerator.GetInt32(caracteres.Length)
-        ];
-    }
-
-    return new string(resultado);
-}
-
 
 // ==========================================================
 // CONFIGURACIÓN INICIAL
@@ -60,9 +40,12 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 
 // Permite utilizar PasswordService y CredencialService mediante inyección de dependencias.
 // Este servicio se encarga de generar y comprobar los hashes
-// de las contraseñas y ahora generar las credenciales PDF 
+// de las contraseñas y ahora generar las credenciales PDF junto a su qr
+//Se agrega servicio para envio de informacion mediante notificaciones
 builder.Services.AddScoped<PasswordService>();
 builder.Services.AddScoped<CredencialService>();
+builder.Services.AddScoped<QrService>();
+builder.Services.AddScoped<NotificacionService>();
 
 // ==========================================================
 // AUTENTICACIÓN JWT
@@ -70,6 +53,7 @@ builder.Services.AddScoped<CredencialService>();
 
 // Configura JWT como mecanismo de autenticación de la API.
 builder.Services.AddAuthentication(
+    
     JwtBearerDefaults.AuthenticationScheme
     )
     .AddJwtBearer(options =>
@@ -91,14 +75,11 @@ builder.Services.AddAuthentication(
         // con nuestra clave.
         ValidateIssuerSigningKey = true,
 
-        ValidIssuer = "ProyectoLenguajes",
-        ValidAudience = "ProyectoLenguajes",
-
-        // Clave temporal utilizada durante el desarrollo.
-        // Posteriormente deberá trasladarse a configuración segura.
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidAudience = builder.Configuration["Jwt:Audience"],
         IssuerSigningKey = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(
-                "CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026"
+                builder.Configuration["Jwt:Clave"]!
             )
         )
     };
@@ -172,23 +153,6 @@ if (app.Environment.IsDevelopment())
 // de la configuración de seguridad y despliegue.
 // app.UseHttpsRedirection();
 
-
-app.MapGet("/api/prueba-credencial", () =>
-    {
-    var servicio = new CredencialService();
-
-    var ruta = @"C:\Users\Jermaih\ProyectoFinalLenguajes\credencial-prueba.pdf";
-
-    servicio.GuardarCredencialPrueba(ruta);
-
-    return Results.Ok(new
-    {
-        mensaje = "Credencial generada correctamente.",
-        ruta
-    });
-});
-
-
 // ==========================================================
 // ENDPOINT: REGISTRO DE USUARIOS
 // ==========================================================
@@ -196,7 +160,9 @@ app.MapGet("/api/prueba-credencial", () =>
 app.MapPost("/api/usuarios", async (
     RegistroUsuarioDto datos,
     ApplicationDbContext db,
-    PasswordService passwordService) =>
+    PasswordService passwordService,
+    CredencialService credencialService,
+    NotificacionService notificacionService) =>
     {
     // Comprueba que ambas contraseñas coincidan.
     if (datos.Password != datos.ConfirmarPassword)
@@ -208,31 +174,12 @@ app.MapPost("/api/usuarios", async (
     }
 
 
-    // Comprueba la longitud mínima de la contraseña.
-    if (datos.Password.Length < 8)
-    {
-        return Results.BadRequest(new
-        {
-            mensaje = "La contraseña debe tener al menos 8 caracteres."
-        });
-    }
-
-
-    // Comprueba que la contraseña contenga
-    // mayúscula, minúscula y número.
-    var contraseñaSegura =
-        System.Text.RegularExpressions.Regex.IsMatch(
-            datos.Password,
-            @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"
-        );
-
-
-    if (!contraseñaSegura)
+    if (!passwordService.EsPasswordValida(datos.Password))
     {
         return Results.BadRequest(new
         {
             mensaje =
-                "La contraseña debe tener al menos una mayúscula, una minúscula y un número."
+                "La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número."
         });
     }
 
@@ -321,7 +268,8 @@ app.MapPost("/api/usuarios", async (
 
         Activo = true,
 
-        FechaRegistro = DateTime.Now
+        FechaRegistro = DateTime.Now,
+        CodigoCredencial = Guid.NewGuid()
     };
 
 
@@ -336,6 +284,29 @@ app.MapPost("/api/usuarios", async (
     };
 
     db.DatosBiometricos.Add(datosBiometricos);
+
+    var datosCredencial = new CredencialDto
+    {
+        Id = usuario.Id,
+        CodigoCredencial = usuario.CodigoCredencial!.Value,
+        Nickname = usuario.Nickname,
+        Correo = usuario.Correo,
+        Telefono = usuario.Telefono,
+        Rol = rolAnalista.Nombre,
+        Foto = usuario.FotoModificada
+    };
+
+    var credencialPdf = credencialService.GenerarCredencial(datosCredencial);
+
+    
+    await notificacionService.EnviarCorreoConAdjuntoAsync(
+        usuario.Correo,
+        "Tu credencial - Analizador Léxico",
+        MensajesCorreo.CredencialRegistro(usuario.Nickname),
+        credencialPdf,
+        $"credencial-{usuario.Nickname}.pdf"
+    );
+
 
     await db.SaveChangesAsync();
 
@@ -474,6 +445,7 @@ app.MapGet("/api/usuarios/{id}/credencial", async (
     var datos = new CredencialDto
     {
         Id = usuario.Id,
+        CodigoCredencial = usuario.CodigoCredencial!.Value,
         Nickname = usuario.Nickname,
         Correo = usuario.Correo,
         Telefono = usuario.Telefono,
@@ -499,7 +471,7 @@ app.MapPost("/api/login", async (
     ApplicationDbContext db,
     PasswordService passwordService,
     HttpContext httpContext) =>
-{
+    {
     // Busca al usuario utilizando su correo.
     var usuario = await db.Usuarios
         .FirstOrDefaultAsync(u =>
@@ -590,11 +562,9 @@ app.MapPost("/api/login", async (
     };
 
 
-    // Clave temporal utilizada para firmar el JWT.
-    // Posteriormente deberá trasladarse a configuración segura.
     var key = new SymmetricSecurityKey(
         Encoding.UTF8.GetBytes(
-            "CLAVE_TEMPORAL_PROYECTO_LENGUAJES_2026"
+            builder.Configuration["Jwt:Clave"]!
         )
     );
 
@@ -607,8 +577,8 @@ app.MapPost("/api/login", async (
 
     // Genera un token válido durante dos horas.
     var token = new JwtSecurityToken(
-        issuer: "ProyectoLenguajes",
-        audience: "ProyectoLenguajes",
+        issuer: builder.Configuration["Jwt:Issuer"],
+        audience: builder.Configuration["Jwt:Audience"],
         claims: claims,
         expires: DateTime.UtcNow.AddHours(2),
         signingCredentials: credentials
@@ -650,8 +620,9 @@ app.MapPost("/api/login", async (
 app.MapPost("/api/recuperar-password", async (
     RecuperarPasswordDto dto,
     ApplicationDbContext db,
-    PasswordService passwordService) =>
-{
+    PasswordService passwordService,
+    NotificacionService notificacionService) =>
+    {
     var usuario = await db.Usuarios
         .FirstOrDefaultAsync(u => u.Correo == dto.Correo);
 
@@ -664,70 +635,29 @@ app.MapPost("/api/recuperar-password", async (
         });
     }
 
-    var passwordTemporal = GenerarPasswordTemporal();
+    var passwordTemporal = passwordService.GenerarPasswordTemporal();
 
     usuario.PasswordHash = passwordService.HashPassword(passwordTemporal);
     usuario.DebeCambiarPassword = true;
 
     await db.SaveChangesAsync();
 
-    // Temporalmente mostramos la contraseña en la consola
-    // mientras se implemente el envío real por corrro
-    Console.WriteLine($"[DESARROLLO] Password temporal para {usuario.Correo}: {passwordTemporal}");
+    
+   await notificacionService.EnviarCorreoAsync(
+    usuario.Correo,
+    "Recuperación de contraseña - Analizador Léxico",
+    MensajesCorreo.RecuperacionPassword(
+        usuario.Nickname,
+        passwordTemporal
+            )
+    );
+
 
     return Results.Ok(new
     {
         mensaje = "Si el correo está registrado, recibirás instrucciones para recuperar tu contraseña."
     });
 });
-
-
-
-
-
-
-// ==========================================================
-// ENDPOINT DE PRUEBA
-// ==========================================================
-
-// Endpoint temporal utilizado para comprobar
-// que el backend responde correctamente.
-app.MapGet("/api/test", () =>
-{
-    return "API funcionando correctamente";
-});
-
-
-// ==========================================================
-// ENDPOINT PROTEGIDO
-// ==========================================================
-
-// Endpoint temporal utilizado para comprobar
-// que la autenticación JWT funciona correctamente.
-app.MapGet("/api/protegido", (HttpContext httpContext) =>
-{
-    var usuarioId =
-        httpContext.User
-            .FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-    var correo =
-        httpContext.User
-            .FindFirst(ClaimTypes.Email)?.Value;
-
-    var rol =
-        httpContext.User
-            .FindFirst(ClaimTypes.Role)?.Value;
-
-
-    return Results.Ok(new
-    {
-        mensaje = "Acceso autorizado.",
-        usuarioId,
-        correo,
-        rol
-    });
-
-}).RequireAuthorization();
 
 
 // ==========================================================
@@ -739,7 +669,7 @@ app.MapGet("/api/protegido", (HttpContext httpContext) =>
 app.MapGet("/api/usuario", async (
     HttpContext httpContext,
     ApplicationDbContext db) =>
-{
+    {
     var usuarioId =
         httpContext.User
             .FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -793,7 +723,7 @@ app.MapPut("/api/usuario/password", async (
     HttpContext httpContext,
     ApplicationDbContext db,
     PasswordService passwordService) =>
-{
+    {
     var usuarioId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
     if (usuarioId == null)
@@ -806,7 +736,7 @@ app.MapPut("/api/usuario/password", async (
 
     if (usuario == null)
     {
-        return Results.NotFound(new
+        return Results.NotFound(new 
         {
             mensaje = "Usuario no encontrado."
         });
@@ -828,10 +758,7 @@ app.MapPut("/api/usuario/password", async (
         });
     }
 
-    if (dto.NuevaPassword.Length < 8 ||
-        !System.Text.RegularExpressions.Regex.IsMatch(
-            dto.NuevaPassword,
-            @"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"))
+   if (!passwordService.EsPasswordValida(dto.NuevaPassword))
     {
         return Results.BadRequest(new
         {
@@ -849,26 +776,6 @@ app.MapPut("/api/usuario/password", async (
         mensaje = "Contraseña actualizada correctamente."
     });
 }).RequireAuthorization();
-
-
-// ==========================================================
-// ENDPOINT DE PRUEBA DE BASE DE DATOS
-// ==========================================================
-
-// Endpoint temporal para comprobar que el backend
-// puede conectarse correctamente con SQL Server.
-app.MapGet("/api/db-test", async (
-    ApplicationDbContext db) =>
-{
-    bool conectado =
-        await db.ProbarConexionAsync();
-
-
-    return conectado
-        ? "Conexión con SQL Server funcionando correctamente"
-        : "No se pudo conectar con SQL Server";
-});
-
 
 // ==========================================================
 // ENDPOINT: ROLES
